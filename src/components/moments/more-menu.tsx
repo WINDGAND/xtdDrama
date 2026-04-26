@@ -38,9 +38,14 @@ export function MoreMenu({ postId }: { postId: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: postId }),
       });
-      const data = (await res.json().catch(() => null)) as { success?: boolean; error?: string } | null;
+      const data = (await res.json().catch(() => null)) as {
+        success?: boolean;
+        error?: string;
+        requestId?: string;
+      } | null;
       if (!res.ok || !data?.success) {
-        setToast(data?.error ?? "删除失败，请重试");
+        const rid = data?.requestId ? `（请求号：${data.requestId}）` : "";
+        setToast(`${data?.error ?? "删除失败，请重试"}${rid}`);
         return;
       }
       setOpen(false);

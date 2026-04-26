@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import type { VisionAnalysis } from "@/types/vision";
-
-function fail(message: string, status: number) {
-  return NextResponse.json({ success: false, error: message }, { status });
-}
+import { fail, ok } from "@/lib/api-response";
 
 export async function POST(req: NextRequest) {
   try {
@@ -19,8 +16,8 @@ export async function POST(req: NextRequest) {
     const mode = body.mode === "video" ? "video" : "image";
     const style = String(body.style ?? "").trim();
 
-    if (!resultUrl) return fail("缺少 resultUrl", 400);
-    if (!style) return fail("缺少 style", 400);
+    if (!resultUrl) return fail("INVALID_INPUT", "缺少 resultUrl", 400);
+    if (!style) return fail("INVALID_INPUT", "缺少 style", 400);
 
     const supabase = createServerSupabaseClient();
     const analysis = body.analysis ?? null;
@@ -41,6 +38,7 @@ export async function POST(req: NextRequest) {
     if (error) {
       console.error("[posts/create] insert error:", error);
       return fail(
+        "DB_ERROR",
         "发布失败：请先在 Supabase 执行 supabase-schema.sql 创建 posts 表",
         502
       );
@@ -64,10 +62,10 @@ export async function POST(req: NextRequest) {
       console.warn("[posts/create] insert fallback comment failed:", commentError);
     }
 
-    return NextResponse.json({ success: true, id: data.id }, { status: 200 });
+    return ok({ id: data.id }, { status: 200 });
   } catch (err: unknown) {
     console.error("[posts/create] exception:", err);
-    return fail(err instanceof Error ? err.message : "发布异常", 500);
+    return fail("UNEXPECTED", err instanceof Error ? err.message : "发布异常", 500);
   }
 }
 

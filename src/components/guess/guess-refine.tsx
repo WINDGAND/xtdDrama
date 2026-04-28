@@ -6,6 +6,74 @@ import { motionDurations, motionEase, motionDistances, motionStaggers } from "@/
 import type { VisionAnalysis } from "@/types/vision";
 import type { GuessOption, GuessResult } from "@/types/guess";
 
+/* -------- Guess 阶段专属 loading -------- */
+const GUESS_COPY = [
+  "正在根据你的日常碎片匹配风格…",
+  "已确认：这张图确实很有戏",
+  "选项生成中，请做好 Drama 准备…",
+  "AI 正在发散思维，稍等…",
+  "戏剧化方向计算中…",
+];
+
+const GUESS_BAR_DELAYS  = ["0s", "0.2s", "0.1s", "0.25s", "0.05s"];
+const GUESS_BAR_HEIGHTS = ["60%", "100%", "75%", "90%", "50%"];
+
+function GuessLoader() {
+  const [copyIdx, setCopyIdx] = useState(0);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setCopyIdx((prev) => (prev + 1) % GUESS_COPY.length);
+    }, 2500);
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      className="flex flex-col items-center gap-3 py-7"
+    >
+      {/* 律动条 */}
+      <div className="flex items-end gap-[3px] h-6" aria-hidden="true">
+        {GUESS_BAR_DELAYS.map((delay, i) => (
+          <span
+            key={i}
+            className="w-[4px] rounded-sm bg-zinc-300 dark:bg-zinc-600"
+            style={{
+              height: GUESS_BAR_HEIGHTS[i],
+              transformOrigin: "bottom",
+              animation: `guessBar 0.55s ${delay} ease-in-out infinite alternate`,
+            }}
+          />
+        ))}
+        <style>{`
+          @keyframes guessBar {
+            0%   { transform: scaleY(0.2); }
+            100% { transform: scaleY(1); }
+          }
+        `}</style>
+      </div>
+
+      {/* 轮换文案 */}
+      <div className="h-4 overflow-hidden relative w-full max-w-[220px]">
+        <AnimatePresence mode="wait">
+          <motion.p
+            key={copyIdx}
+            initial={{ opacity: 0, y: 5 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -5 }}
+            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+            className="text-xs text-zinc-400 dark:text-zinc-500 text-center absolute inset-x-0"
+          >
+            {GUESS_COPY[copyIdx]}
+          </motion.p>
+        </AnimatePresence>
+      </div>
+    </motion.div>
+  );
+}
+
 export interface GuessRefineProps {
   analysis: VisionAnalysis;
   onGenerate: (option: GuessOption, mode: "image" | "video") => void;
@@ -152,25 +220,7 @@ export function GuessRefine({ analysis, onGenerate }: GuessRefineProps) {
 
   /* Loading */
   if (status === "loading") {
-    return (
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        className="flex flex-col items-center gap-2.5 py-8"
-      >
-        <div className="flex gap-1.5">
-          {[0, 1, 2].map((i) => (
-            <motion.span
-              key={i}
-              className="w-1.5 h-1.5 rounded-full bg-zinc-300 dark:bg-zinc-600"
-              animate={{ opacity: [0.3, 1, 0.3] }}
-              transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.2 }}
-            />
-          ))}
-        </div>
-        <p className="text-xs text-zinc-400 dark:text-zinc-500">正在生成风格建议…</p>
-      </motion.div>
-    );
+    return <GuessLoader />;
   }
 
   /* Error */

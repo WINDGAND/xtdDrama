@@ -55,8 +55,12 @@ export function PostFooterActions({ postId, postUserId, timeText }: Props) {
       }
       pushFlashToast(successToast);
 
-      if (pathname === "/plaza") router.refresh();
-      else router.push("/plaza");
+      if (pathname === "/plaza") {
+        // 广场内采用乐观移除，避免删除后“顿一下”再消失
+        window.dispatchEvent(new CustomEvent("xtdDrama:post-deleted", { detail: { postId } }));
+      } else {
+        router.push("/plaza");
+      }
     } finally {
       setBusy(false);
       setConfirmOpen(false);

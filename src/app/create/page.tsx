@@ -6,7 +6,9 @@ import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { Toast } from "@/components/ui/toast";
 import { InlineAlert } from "@/components/ui/inline-alert";
+import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { requestLogin } from "@/lib/request-login";
+import { DramaGeneratingLoader } from "@/components/upload/drama-generating-loader";
 import type { VisionAnalysis, VisionResponse } from "@/types/vision";
 import type { GuessOption } from "@/types/guess";
 import { useAuth } from "@/components/providers/auth-provider";
@@ -15,6 +17,69 @@ import ProfilePic2 from "@/../images/ProfilePic2.jpg";
 import ProfilePic3 from "@/../images/ProfilePic3.jpg";
 import ProfilePic4 from "@/../images/ProfilePic4.jpg";
 import ProfilePic5 from "@/../images/ProfilePic5.jpg";
+
+/* -------- Vision 等待态 loader -------- */
+const VISION_COPY = [
+  "AI 正在扫描你的图…",
+  "识别场景与情绪中…",
+  "感知层运行中，请稍等…",
+];
+
+const VISION_BAR_DELAYS = ["0s", "0.18s", "0.09s", "0.27s", "0.05s"];
+
+function VisionScanLoader() {
+  const [idx, setIdx] = useState(0);
+
+  useEffect(() => {
+    const id = setInterval(() => setIdx((p) => (p + 1) % VISION_COPY.length), 2000);
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+      className="rounded-lg border border-zinc-200/80 dark:border-white/[0.08] px-4 py-3.5 bg-white/60 dark:bg-white/[0.03] flex items-center gap-3"
+    >
+      {/* 律动条 */}
+      <div className="flex items-end gap-[2.5px] h-5 shrink-0" aria-hidden="true">
+        {VISION_BAR_DELAYS.map((delay, i) => (
+          <span
+            key={i}
+            className="w-[3.5px] rounded-sm bg-zinc-300 dark:bg-zinc-600"
+            style={{
+              height: "100%",
+              transformOrigin: "bottom",
+              animation: `visionBar 0.6s ${delay} ease-in-out infinite alternate`,
+            }}
+          />
+        ))}
+        <style>{`
+          @keyframes visionBar {
+            0%   { transform: scaleY(0.2); }
+            100% { transform: scaleY(1); }
+          }
+        `}</style>
+      </div>
+      {/* 轮换文案 */}
+      <div className="relative h-5 flex-1 overflow-hidden">
+        <AnimatePresence mode="wait">
+          <motion.span
+            key={idx}
+            initial={{ opacity: 0, y: 5 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -5 }}
+            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+            className="absolute inset-0 text-sm leading-5 text-zinc-500 dark:text-zinc-400"
+          >
+            {VISION_COPY[idx]}
+          </motion.span>
+        </AnimatePresence>
+      </div>
+    </motion.div>
+  );
+}
 
 const uploadSkeleton = (
   <div className="h-64 w-full rounded-xl border border-zinc-100 dark:border-white/[0.06] bg-zinc-50 dark:bg-white/[0.04] animate-pulse" />
@@ -153,6 +218,7 @@ export default function CreatePage() {
   const lastGenerateRef = useRef<{ option: GuessOption; mode: "image" | "video" } | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rePickInputRef = useRef<HTMLInputElement | null>(null);
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const dramaWordCls = useMemo(() => [
     "bg-gradient-to-r from-blue-600 via-violet-500 to-fuchsia-500",
     "text-transparent bg-clip-text",
@@ -496,6 +562,13 @@ export default function CreatePage() {
         durationMs={toast?.durationMs}
         onClear={clearToast}
       />
+      {lightboxSrc && (
+        <ImageLightbox
+          src={lightboxSrc}
+          alt="查看大图"
+          onClose={() => setLightboxSrc(null)}
+        />
+      )}
 
       <div className="mx-auto w-full max-w-6xl">
         <AnimatePresence mode="wait" initial={false}>
@@ -769,13 +842,32 @@ export default function CreatePage() {
                   <div className="absolute left-3 top-3 z-10 rounded-md border border-zinc-200/70 dark:border-white/[0.08] bg-white/85 dark:bg-[oklch(0.16_0.004_265)]/85 px-2 py-1 text-[11px] font-mono uppercase tracking-widest text-zinc-500 dark:text-zinc-500">
                     原图
                   </div>
+                  {/* 扫描线：仅在 Vision 分析进行时（有图但还没分析结果）显示 */}
+                  {uploadedPreviewUrl && !analysisResult && !job && (
+                    <div
+                      aria-hidden="true"
+                      className="pointer-events-none absolute inset-0 z-20 overflow-hidden rounded-xl"
+                    >
+                      <div
+                        className="absolute inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-blue-400/70 dark:via-blue-500/60 to-transparent"
+                        style={{ animation: "visionScan 2s linear infinite" }}
+                      />
+                      <style>{`
+                        @keyframes visionScan {
+                          0%   { top: 0%; }
+                          100% { top: 100%; }
+                        }
+                      `}</style>
+                    </div>
+                  )}
                   <div className="h-[min(32vh,300px)] min-h-[220px] flex items-center justify-center p-3">
                     {uploadedPreviewUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={uploadedPreviewUrl}
                         alt="上传的原图"
-                        className="h-full w-full object-contain"
+                        className="h-full w-full object-contain cursor-zoom-in"
+                        onClick={() => setLightboxSrc(uploadedPreviewUrl)}
                       />
                     ) : null}
                   </div>
@@ -799,19 +891,13 @@ export default function CreatePage() {
                         <img
                           src={completedResultUrl}
                           alt="AI 生成图"
-                          className="h-full w-full object-contain"
+                          className="h-full w-full object-contain cursor-zoom-in"
+                          onClick={() => setLightboxSrc(completedResultUrl)}
                         />
                       )
                     ) : resultPending ? (
-                      <div className="flex h-full w-full flex-col items-center justify-center gap-3 rounded-xl bg-zinc-100 dark:bg-white/[0.05] animate-pulse">
-                        <div className="flex gap-1.5">
-                          {[0, 1, 2].map((i) => (
-                            <span key={i} className="h-1.5 w-1.5 rounded-full bg-zinc-300 dark:bg-zinc-600" />
-                          ))}
-                        </div>
-                        <p className="text-xs text-zinc-500 dark:text-zinc-500">
-                          正在生成专属 Drama…
-                        </p>
+                      <div className="flex h-full w-full flex-col items-center justify-center px-4">
+                        <DramaGeneratingLoader status={job!.status as "submitting" | "polling"} />
                       </div>
                     ) : job?.status === "failed" ? (
                       <div className="text-sm text-zinc-500 dark:text-zinc-500">
@@ -837,18 +923,44 @@ export default function CreatePage() {
 
               <div className="mt-5 flex flex-col gap-4">
                 {analysisResult ? (
-                  <div>
-                    <div className="text-[10px] font-medium text-zinc-500 dark:text-zinc-600 uppercase tracking-widest">
+                  /* Vision 结果：三字段 stagger 揭示 */
+                  <motion.div
+                    initial="hidden"
+                    animate="visible"
+                    variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.12 } } }}
+                  >
+                    <motion.div
+                      variants={{ hidden: { opacity: 0, y: 4 }, visible: { opacity: 1, y: 0, transition: { duration: 0.22, ease: [0.22,1,0.36,1] } } }}
+                      className="text-[10px] font-medium text-zinc-500 dark:text-zinc-600 uppercase tracking-widest"
+                    >
                       AI 感知完毕 · YT-VITA
+                    </motion.div>
+                    <div className="mt-1.5 flex flex-col gap-1">
+                      {([
+                        { label: "主体", value: analysisResult.mainEntity },
+                        { label: "场景", value: analysisResult.sceneState },
+                        { label: "情绪", value: analysisResult.userEmotion },
+                      ] as { label: string; value: string | null | undefined }[])
+                        .filter((f) => !!f.value)
+                        .map((f) => (
+                          <motion.div
+                            key={f.label}
+                            variants={{ hidden: { opacity: 0, x: -4 }, visible: { opacity: 1, x: 0, transition: { duration: 0.22, ease: [0.22,1,0.36,1] } } }}
+                            className="flex items-baseline gap-1.5 text-sm leading-relaxed"
+                          >
+                            <span className="shrink-0 text-[11px] font-medium text-zinc-400 dark:text-zinc-500 tabular-nums">
+                              {f.label}：
+                            </span>
+                            <span className="text-zinc-700 dark:text-zinc-300">
+                              {f.value}
+                            </span>
+                          </motion.div>
+                        ))}
                     </div>
-                    <div className="mt-1.5 text-sm text-zinc-700 dark:text-zinc-300 leading-relaxed">
-                      {analysisLine}
-                    </div>
-                  </div>
+                  </motion.div>
                 ) : (
-                  <div className="rounded-lg border border-zinc-200/80 dark:border-white/[0.08] px-4 py-3 text-sm text-zinc-600 dark:text-zinc-400 bg-white/60 dark:bg-white/[0.03]">
-                    正在上传并分析图片，请稍等…
-                  </div>
+                  /* Vision 等待中：律动条 + 轮换文案 */
+                  <VisionScanLoader />
                 )}
 
                 {analysisResult && (

@@ -137,12 +137,12 @@ export function AppHeader() {
               ))}
             </nav>
 
-            <div className="flex items-center justify-end gap-2">
+            <div className="col-start-3 flex items-center justify-end gap-2">
               {authed ? (
                 <button
                   type="button"
                   onClick={signOut}
-                  className="hidden md:flex h-8 items-center px-4 rounded-md text-[13px] font-medium border border-zinc-200/80 dark:border-white/[0.10] text-zinc-700 dark:text-zinc-200 bg-white/70 dark:bg-white/[0.02] hover:bg-zinc-50 dark:hover:bg-white/[0.05] transition-colors"
+                  className="flex h-8 items-center px-4 rounded-md text-[13px] font-medium border border-zinc-200/80 dark:border-white/[0.10] text-zinc-700 dark:text-zinc-200 bg-white/70 dark:bg-white/[0.02] hover:bg-zinc-50 dark:hover:bg-white/[0.05] transition-colors"
                 >
                   退出登录
                 </button>
@@ -151,12 +151,12 @@ export function AppHeader() {
                   type="button"
                   onClick={() => requestLoginDirect()}
                   className={[
-                    "hidden md:flex h-8 items-center px-4 rounded-md",
+                    "flex h-8 items-center px-4 rounded-md",
                     "text-[13px] font-medium text-white",
                     "apple-btn-primary",
                   ].join(" ")}
                 >
-                  登录
+                  进入/登录
                 </button>
               )}
 

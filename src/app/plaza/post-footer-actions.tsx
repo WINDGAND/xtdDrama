@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/providers/auth-provider";
 import { Toast } from "@/components/ui/toast";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { pushFlashToast } from "@/lib/flash-toast";
 
 type Props = {
   postId: string;
@@ -45,6 +46,15 @@ export function PostFooterActions({ postId, postUserId, timeText }: Props) {
         setToast({ title: "删除失败", description: `${data?.error ?? "请重试"}${rid}`, tone: "error", durationMs: 3800 });
         return;
       }
+      // 先发全局提示，再进行跳转/刷新，避免本地 Toast 因组件卸载而“闪没”
+      const successToast = { title: "已删除", description: "帖子已从广场移除", tone: "success" as const };
+      try {
+        window.dispatchEvent(new CustomEvent("xtdDrama:instant-toast", { detail: successToast }));
+      } catch {
+        // ignore
+      }
+      pushFlashToast(successToast);
+
       if (pathname === "/plaza") router.refresh();
       else router.push("/plaza");
     } finally {

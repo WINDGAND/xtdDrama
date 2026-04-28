@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { BreathingLoader } from "./breathing-loader";
 import { motionDurations, motionEase } from "@/lib/motion";
@@ -12,6 +12,8 @@ interface DragUploadProps {
   onUploadSuccess?: (base64: string) => void;
   onPublicUrlReady?: (publicUrl: string) => void;
   onAnalysisComplete?: (analysis: VisionAnalysis) => void;
+  isGuest?: boolean;
+  onGuestAttempt?: () => void;
   maxBytes?: number;
 }
 
@@ -43,6 +45,8 @@ export function DragUpload({
   onUploadSuccess,
   onPublicUrlReady,
   onAnalysisComplete,
+  isGuest,
+  onGuestAttempt,
   maxBytes = DEFAULT_MAX_BYTES,
 }: DragUploadProps) {
   const [state, setState] = useState<UploadState>("idle");
@@ -52,6 +56,13 @@ export function DragUpload({
 
   const dragCounterRef = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const handleFile = useCallback(
     async (file: File) => {
@@ -70,53 +81,60 @@ export function DragUpload({
         const base64 = await readAsBase64(file);
         onUploadSuccess?.(base64);
 
-        await new Promise<void>((r) => setTimeout(r, 500));
         setState("sensing");
 
-        setSensingText("正在上传图片...");
-        let publicUrl: string | null = null;
-        try {
-          const uploadRes = await fetch("/api/storage/upload", {
+        setSensingText("正在上传并分析...");
+
+        const uploadTask = (async () => {
+          try {
+            const uploadRes = await fetch("/api/storage/upload", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ imageBase64: base64 }),
+            });
+            const uploadData = await uploadRes.json() as {
+              success: boolean; publicUrl?: string; error?: string;
+            };
+            if (uploadData.success && uploadData.publicUrl) {
+              onPublicUrlReady?.(uploadData.publicUrl);
+            } else if (!uploadData.success) {
+              console.warn("[DragUpload] Supabase 上传失败：", uploadData.error);
+            }
+          } catch (e) {
+            console.warn("[DragUpload] Supabase 上传异常：", e);
+          }
+        })();
+
+        const visionTask = (async () => {
+          const apiResponse = await fetch("/api/vision", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ imageBase64: base64 }),
           });
-          const uploadData = await uploadRes.json() as {
-            success: boolean; publicUrl?: string; error?: string;
-          };
-          if (uploadData.success && uploadData.publicUrl) {
-            publicUrl = uploadData.publicUrl;
-            onPublicUrlReady?.(publicUrl);
-          }
-          if (!uploadData.success) {
-            console.warn("[DragUpload] Supabase 上传失败：", uploadData.error);
-          }
-        } catch (e) {
-          console.warn("[DragUpload] Supabase 上传异常：", e);
-        }
+          const result: VisionResponse = await apiResponse.json();
+          return result;
+        })();
 
-        setSensingText("AI 正在分析你的照片...");
-        const apiResponse = await fetch("/api/vision", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageBase64: base64 }),
-        });
-        const result: VisionResponse = await apiResponse.json();
+        const [visionResult] = await Promise.all([visionTask, uploadTask]);
 
-        if (!result.success) {
-          setSensingText(`分析失败：${result.error}`);
+        if (!visionResult.success) {
+          if (mountedRef.current) setSensingText(`分析失败：${visionResult.error}`);
           await new Promise<void>((r) => setTimeout(r, 1500));
-          setState("error");
-          setErrorMsg(result.error);
+          if (mountedRef.current) {
+            setState("error");
+            setErrorMsg(visionResult.error);
+          }
           return;
         }
 
-        onAnalysisComplete?.(result.data);
-        setState("preview");
+        onAnalysisComplete?.(visionResult.data);
+        if (mountedRef.current) setState("preview");
       } catch (err) {
         console.error("[DragUpload] 处理异常：", err);
-        setState("error");
-        setErrorMsg("上传处理失败，请重试");
+        if (mountedRef.current) {
+          setState("error");
+          setErrorMsg("上传处理失败，请重试");
+        }
       }
     },
     [maxBytes, onUploadSuccess, onPublicUrlReady, onAnalysisComplete]
@@ -142,25 +160,39 @@ export function DragUpload({
     (e: React.DragEvent) => {
       e.preventDefault();
       dragCounterRef.current = 0;
+      if (isGuest) {
+        onGuestAttempt?.();
+        setState("idle");
+        return;
+      }
       const file = e.dataTransfer.files[0];
       if (file) handleFile(file);
       else setState("idle");
     },
-    [handleFile]
+    [handleFile, isGuest, onGuestAttempt]
   );
 
   const handleInputChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (isGuest) {
+        onGuestAttempt?.();
+        e.target.value = "";
+        return;
+      }
       const file = e.target.files?.[0];
       if (file) handleFile(file);
       e.target.value = "";
     },
-    [handleFile]
+    [handleFile, isGuest, onGuestAttempt]
   );
 
   const handleZoneClick = useCallback(() => {
+    if (isGuest) {
+      onGuestAttempt?.();
+      return;
+    }
     if (state === "idle" || state === "error") inputRef.current?.click();
-  }, [state]);
+  }, [isGuest, onGuestAttempt, state]);
 
   const handleReset = useCallback(() => {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -173,14 +205,15 @@ export function DragUpload({
   const panelCls = [
     "relative w-full overflow-hidden rounded-xl",
     "border transition-all duration-150",
-    "bg-white dark:bg-[oklch(0.18_0.004_265)]",
+    // 默认尽量贴近页面背景，减少“卡片感”
+    "bg-transparent",
     state === "idle"
-      ? "border-zinc-200 dark:border-white/[0.08] cursor-pointer hover:border-zinc-300 dark:hover:border-white/[0.14] hover:shadow-sm"
+      ? "border-zinc-200/70 dark:border-white/[0.08] cursor-pointer hover:border-zinc-300/80 dark:hover:border-white/[0.14]"
       : state === "dragging"
-        ? "border-[var(--apple-blue)] border-2 bg-[oklch(0.96_0.015_250)]/70 dark:bg-[oklch(0.20_0.02_250)]/35 cursor-copy"
+        ? "border-[var(--apple-blue)] border-2 bg-[oklch(0.96_0.015_250)]/60 dark:bg-[oklch(0.20_0.02_250)]/30 cursor-copy"
         : state === "error"
           ? "border-red-300 dark:border-red-800/50 cursor-pointer"
-          : "border-zinc-100 dark:border-white/[0.06] cursor-default",
+          : "border-zinc-100/70 dark:border-white/[0.06] bg-white/60 dark:bg-white/[0.03] cursor-default",
   ].join(" ");
 
   return (
@@ -238,13 +271,24 @@ export function DragUpload({
                 <p className="text-sm text-zinc-600 dark:text-zinc-400">
                   {state === "dragging" ? "松开以上传" : (
                     <>
-                      <span className="text-blue-500 dark:text-blue-400">选择文件</span>
-                      {" "}或拖拽至此
+                      <span
+                        className={[
+                          "inline-flex items-center justify-center",
+                          "h-9 px-4 rounded-lg",
+                          "border border-[color:var(--apple-blue)]",
+                          "bg-[oklch(0.97_0.015_250)]/70 dark:bg-[oklch(0.20_0.02_250)]/35",
+                          "text-[color:var(--apple-blue)] font-semibold",
+                          "shadow-sm",
+                        ].join(" ")}
+                      >
+                        选择照片开始
+                      </span>
+                      <span className="ml-2 text-zinc-500 dark:text-zinc-500">或拖拽到这里</span>
                     </>
                   )}
                 </p>
-                <p className="text-xs text-zinc-400 dark:text-zinc-600">
-                  JPG / PNG · 最大 5 MB
+                <p className="text-[11px] text-zinc-400/80 dark:text-zinc-500">
+                  支持 JPG/PNG · ≤ 5MB
                 </p>
               </div>
             </motion.div>

@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { fail, ok } from "@/lib/api-response";
 
@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
     const supabase = createServerSupabaseClient();
     const { data, error } = await supabase
       .from("comments")
-      .select("id, created_at, author_type, npc_id, display_name, content, status")
+      .select("id, created_at, author_type, user_id, npc_id, display_name, parent_id, content, status")
       .eq("post_id", postId)
       .order("created_at", { ascending: true })
       .limit(50);

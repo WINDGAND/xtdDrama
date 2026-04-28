@@ -40,6 +40,21 @@ export interface VisionAnalysis {
   userEmotion: string;
 
   /**
+   * 情绪证据（可选）：1 句话说明为什么判定该情绪，引用画面线索。
+   * 用于降低“AI 自嗨/胡猜”的观感。
+   */
+  evidence?: string;
+
+  /**
+   * 情绪候选（可选）：Top-3 候选标签与置信度（0-1）。
+   * 便于后续做自动校准/兜底。
+   */
+  emotionCandidates?: Array<{
+    label: string;
+    score: number;
+  }>;
+
+  /**
    * 风格提示（可选，为"Guess & Refine"任务预留）
    * 模型自发建议的 1-3 个夸张化改写方向关键词
    */

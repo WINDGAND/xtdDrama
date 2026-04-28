@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { extractJSON } from "@/lib/extract-json";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { fail, ok } from "@/lib/api-response";
+import { NPC_V2 } from "@/lib/npc/npc-v2";
 
 const TOKENHUB_API_KEY = process.env.TOKENHUB_API_KEY ?? "";
 const TOKENHUB_BASE_URL = process.env.TOKENHUB_BASE_URL ?? "https://tokenhub.tencentmaas.com";
@@ -9,19 +10,19 @@ const TOKENHUB_NPC_MODEL =
   process.env.TOKENHUB_NPC_MODEL ?? process.env.TOKENHUB_GUESS_MODEL ?? "hunyuan-2.0-instruct-20251111";
 const UPSTREAM_TIMEOUT_MS = Number(process.env.TOKENHUB_TIMEOUT_MS ?? "30000");
 
-const SYSTEM_PROMPT = `你是「小题大Drama」的 NPC 评论生成引擎。你将根据一条用户发布的作品（生成图描述、风格、情绪）生成 3 条不同人设的评论，用于消灭“发布后社交空窗期”。
+const SYSTEM_PROMPT = `你是「小题大Drama」的 AI 互动引擎。你将根据一条用户发布的作品（风格、情绪、主实体、场景）生成 5 条“更像真人”的评论，用于消灭“发布后社交空窗期”。
 
-## 人设（必须遵守）
-1) 毒舌学长：嘴硬心软，犀利吐槽但不冒犯，不攻击个人、不羞辱、不歧视。
-2) 捧场王：无脑捧场，夸夸群群主，带一点网感但不尬。
-3) 知心学姐：温柔共情，给情绪兜底，不说教。
+## 角色（必须遵守）
+你必须生成 5 条评论，分别对应以下 5 位角色，每条都要稳定体现其表达偏好（但不要表演感过强）：
+${NPC_V2.map((x, i) => `${i + 1}) ${x.displayName}（npc_id: ${x.npc_id}）：${x.stylePrompt}`).join("\n")}
 
 ## 输出格式（严格：只输出纯 JSON，不要任何解释/markdown）
-{"comments":[{"npc_id":"senior","display_name":"毒舌学长","content":"..."},{"npc_id":"cheer","display_name":"捧场王","content":"..."},{"npc_id":"sis","display_name":"知心学姐","content":"..."}]}
+{"comments":[${NPC_V2.map((x) => `{"npc_id":"${x.npc_id}","display_name":"${x.displayName}","content":"..."}`).join(",")}]}
 
 ## 内容要求
-- 每条 20-60 字，中文
-- 允许轻微调侃，但禁止引导自残/暴力/仇恨
+- 每条 18-55 字，中文口语化，像真实人类
+- 不要过度浮夸，不要“夸夸群”式堆叠，不要连续感叹号
+- 允许轻微调侃，但禁止攻击个人、羞辱、歧视、引导自残/暴力/仇恨
 - 必须与输入的“主实体/场景/情绪/风格”强相关，像真的看过图一样
 - 不要提到“我是AI/模型/提示词/TokenHub”等技术细节`;
 
@@ -55,7 +56,7 @@ export async function POST(req: NextRequest) {
     if (postErr || !post) return fail("NOT_FOUND", "作品不存在或读取失败", 404);
 
     const userContent = [
-      "以下是一条作品信息（JSON），请按系统要求生成 3 条 NPC 评论：",
+      "以下是一条作品信息（JSON），请按系统要求生成 5 条 NPC 评论：",
       JSON.stringify({
         style: post.style,
         mode: post.mode,
@@ -120,10 +121,10 @@ export async function POST(req: NextRequest) {
       return fail("UNEXPECTED", "NPC 生成失败：解析异常", 500);
     }
 
-    const items = Array.isArray(parsed.comments) ? parsed.comments.slice(0, 3) : [];
-    if (items.length !== 3) return fail("UNEXPECTED", "NPC 生成失败：评论数量不正确", 500);
+    const normalized = Array.isArray(parsed.comments) ? parsed.comments.slice(0, 5) : [];
+    if (normalized.length !== 5) return fail("UNEXPECTED", "NPC 生成失败：评论数量不正确", 500);
 
-    const rows = items.map((c) => ({
+    const rows = normalized.map((c) => ({
       post_id: postId,
       author_type: "npc" as const,
       npc_id: String(c.npc_id ?? "").trim(),

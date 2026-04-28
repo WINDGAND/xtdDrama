@@ -22,7 +22,9 @@ import type { Metadata, Viewport } from "next";
 import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 import { ThemeProvider } from "@/components/providers/theme-provider";
+import { AuthProvider } from "@/components/providers/auth-provider";
 import { AppShell } from "@/components/layout/app-shell";
+import { SupabaseOriginHints } from "@/components/layout/supabase-origin-hints";
 import "./globals.css";
 
 /* ----------------------------------------------------------------
@@ -73,20 +75,25 @@ export default function RootLayout({
       suppressHydrationWarning
       className={`${GeistSans.variable} ${GeistMono.variable} h-full`}
     >
+      <head>
+        <SupabaseOriginHints />
+      </head>
       <body className="min-h-full">
         {/**
          * ThemeProvider 包裹整个应用
          * 所有子组件均可通过 useTheme() 读取/切换主题状态
          */}
         <ThemeProvider>
-          {/**
-           * AppShell 提供统一的移动端框架
-           * - 桌面端：居中 max-w-md 内容列 + 背景填充
-           * - 包含全局顶部导航栏（AppHeader）
-           */}
-          <AppShell>
-            {children}
-          </AppShell>
+          <AuthProvider>
+            {/**
+             * AppShell 提供统一的移动端框架
+             * - 桌面端：居中 max-w-md 内容列 + 背景填充
+             * - 包含全局顶部导航栏（AppHeader）
+             */}
+            <AppShell>
+              {children}
+            </AppShell>
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>

@@ -1,10 +1,61 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase-server";
+import { revalidatePath, revalidateTag } from "next/cache";
+import { createServerSupabaseClient, STORAGE_BUCKET } from "@/lib/supabase-server";
 import type { VisionAnalysis } from "@/types/vision";
 import { fail, ok } from "@/lib/api-response";
+import { createAuthServerClient } from "@/lib/supabase-auth-server";
+
+function isStableStorageUrl(url: string) {
+  // public object url pattern: /storage/v1/object/public/<bucket>/<path>
+  return url.includes("/storage/v1/object/public/");
+}
+
+function guessExtFromContentType(ct: string | null | undefined) {
+  const v = String(ct ?? "").toLowerCase();
+  if (v.includes("image/webp")) return "webp";
+  if (v.includes("image/png")) return "png";
+  if (v.includes("image/jpeg") || v.includes("image/jpg")) return "jpg";
+  if (v.includes("video/mp4")) return "mp4";
+  return "bin";
+}
+
+async function mirrorToStorage(supabase: ReturnType<typeof createServerSupabaseClient>, inputUrl: string, userId: string) {
+  const res = await fetch(inputUrl, { cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`拉取生成结果失败：${res.status}`);
+  }
+  const ct = res.headers.get("content-type");
+  const ab = await res.arrayBuffer();
+  const maxBytes = 25 * 1024 * 1024;
+  if (ab.byteLength <= 0) throw new Error("生成结果为空");
+  if (ab.byteLength > maxBytes) throw new Error("生成结果过大，无法发布");
+
+  const ext = guessExtFromContentType(ct);
+  const uid = `result_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const storagePath = `posts/${userId}/${uid}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from(STORAGE_BUCKET)
+    .upload(storagePath, Buffer.from(ab), {
+      contentType: ct ?? undefined,
+      upsert: false,
+    });
+  if (uploadError) throw new Error(`存储失败：${uploadError.message}`);
+
+  const { data: urlData } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(storagePath);
+  const publicUrl = urlData?.publicUrl;
+  if (!publicUrl) throw new Error("获取 publicUrl 失败");
+  return publicUrl;
+}
 
 export async function POST(req: NextRequest) {
   try {
+    const auth = await createAuthServerClient();
+    const { data: userData, error: userErr } = await auth.auth.getUser();
+    if (userErr || !userData.user) {
+      return fail("INVALID_INPUT", "请先登录再发布", 401);
+    }
+
     const body = (await req.json()) as Partial<{
       resultUrl: string;
       mode: "image" | "video";
@@ -22,12 +73,24 @@ export async function POST(req: NextRequest) {
     const supabase = createServerSupabaseClient();
     const analysis = body.analysis ?? null;
 
+    // 关键：模型侧 resultUrl 可能是临时链接（过期后广场无法显示），发布时统一落盘到 Supabase Storage。
+    let stableResultUrl = resultUrl;
+    if (!isStableStorageUrl(resultUrl)) {
+      try {
+        stableResultUrl = await mirrorToStorage(supabase, resultUrl, userData.user.id);
+      } catch (e) {
+        console.error("[posts/create] mirror failed:", e);
+        return fail("UPSTREAM_ERROR", "生成结果链接已失效或不可用，请重新生成后再发布", 502);
+      }
+    }
+
     const { data, error } = await supabase
       .from("posts")
       .insert({
         mode,
         style,
-        result_url: resultUrl,
+        result_url: stableResultUrl,
+        user_id: userData.user.id,
         main_entity: analysis?.mainEntity ?? null,
         scene_state: analysis?.sceneState ?? null,
         user_emotion: analysis?.userEmotion ?? null,
@@ -44,22 +107,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // NPC 5 秒内首评兜底：先写入一条 placeholder 评论，保证详情页立刻可见
-    const fallbackContent = [
-      "我懂你这波。",
-      "先别硬撑，给你安排一张更离谱的。",
-    ].join(" ");
-    const { error: commentError } = await supabase.from("comments").insert({
-      post_id: data.id,
-      author_type: "npc",
-      npc_id: "sis",
-      display_name: "知心学姐",
-      content: fallbackContent,
-      status: "placeholder",
-    });
-    if (commentError) {
-      // 不影响发布主流程：评论表可能尚未建好
-      console.warn("[posts/create] insert fallback comment failed:", commentError);
+    // 互动兜底：不再写死旧 NPC 名字/人设；首屏由前端展示“正在赶来…”
+    // 点赞/评论由独立的生成流程补齐（并在前端做 25 秒内陆续显现）
+
+    try {
+      revalidateTag("plaza-posts", "max");
+      revalidateTag("me-posts", "max");
+      revalidateTag("posts", "max");
+      revalidatePath("/plaza");
+      revalidatePath("/me");
+      revalidatePath(`/posts/${data.id}`);
+    } catch {
+      // 缓存失效失败不阻断发布
     }
 
     return ok({ id: data.id }, { status: 200 });

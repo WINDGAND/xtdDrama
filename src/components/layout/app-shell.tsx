@@ -21,6 +21,8 @@
 
 import type { ReactNode } from "react";
 import { AppHeader } from "./app-header";
+import { ViewTransitionMain } from "./view-transition-main";
+import LoginGateModal from "@/components/ui/login-gate-modal";
 
 interface AppShellProps {
   children: ReactNode;
@@ -44,8 +46,10 @@ export function AppShell({ children }: AppShellProps) {
        * - flex-1 撑满剩余高度
        */}
       <main className="flex-1 pb-20 md:pb-0">
-        {children}
+        <ViewTransitionMain>{children}</ViewTransitionMain>
       </main>
+
+      <LoginGateModal />
     </div>
   );
 }

@@ -24,6 +24,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { extractJSON } from "@/lib/extract-json";
+import { randomUUID } from "crypto";
 import type {
   VisionRequestBody,
   VisionAnalysis,
@@ -42,6 +43,24 @@ const TOKENHUB_VITA_MODEL =
   process.env.TOKENHUB_VITA_MODEL ?? "youtu-vita";
 const TOKENHUB_MAX_TOKENS = Number(process.env.TOKENHUB_MAX_TOKENS ?? "512");
 const UPSTREAM_TIMEOUT_MS = Number(process.env.TOKENHUB_TIMEOUT_MS ?? "30000");
+const TOKENHUB_EMOTION_MODEL =
+  process.env.TOKENHUB_EMOTION_MODEL ?? process.env.TOKENHUB_GUESS_MODEL ?? "hunyuan-2.0-instruct-20251111";
+
+const EMOTION_ENUM = [
+  "崩溃",
+  "烦躁",
+  "尴尬",
+  "无奈",
+  "焦虑",
+  "疲惫",
+  "委屈",
+  "开心",
+  "兴奋",
+  "无聊",
+  "平静",
+  "好奇",
+  "迷茫",
+] as const;
 
 /* ----------------------------------------------------------------
  * System Prompt — 「敏锐的场景观察者」
@@ -58,19 +77,21 @@ const SYSTEM_PROMPT = `你是一位极度敏锐、冷静客观的场景分析 AI
 分析用户上传的图片，输出一段**纯 JSON 字符串**，精准描述图片中的场景状态与用户潜在情绪。
 
 ## 输出格式（严格遵守，禁止任何额外文字）
-{"mainEntity":"<图像中最显著的核心主体，中文，≤20字>","sceneState":"<当前物理环境的客观状态，中文，≤30字，不含主观情绪>","userEmotion":"<基于场景推断的用户潜在情绪，1-2个中文词>","styleHints":["<夸张改写方向1>","<夸张改写方向2>","<夸张改写方向3>"]}
+{"mainEntity":"<图像中最显著的核心主体，中文，≤20字>","sceneState":"<当前物理环境的客观状态，中文，≤30字，不含主观情绪>","userEmotion":"<情绪标签，必须从枚举里选 1 个>","evidence":"<一句话说明你为什么判这个情绪，引用画面线索，≤28字>","emotionCandidates":[{"label":"<枚举情绪>","score":0.0},{"label":"<枚举情绪>","score":0.0},{"label":"<枚举情绪>","score":0.0}],"styleHints":["<夸张改写方向1>","<夸张改写方向2>","<夸张改写方向3>"]}
 
 ## 字段说明
 - mainEntity: 你实际看到的核心主体，例如"堆满试卷的桌面"、"洒落在地的咖啡"、"挤满人的地铁"
 - sceneState: 你看到的客观场景，例如"昏暗宿舍，屏幕蓝光，凌晨时分"
-- userEmotion: 情绪标签，例如"焦虑"、"疲惫"、"无聊"、"崩溃"、"兴奋"
+- userEmotion: 情绪标签必须从以下枚举里选择 1 个：${EMOTION_ENUM.join("、")}
+- evidence: 一句话，引用画面线索（例如“液体洒一地”“杯盖掉落”“狼狈痕迹”），不要写物体清单
+- emotionCandidates: 3 个候选情绪 + 置信度（0-1），按 score 从高到低排列
 - styleHints: 3个极具网感的夸张化改写方向，例如["克苏鲁吞噬风","赛博牛马风","吉卜力治愈风"]
 
 ## 禁止事项
 - 禁止在 JSON 之外输出任何文字或解释
 - 禁止输出 Markdown 代码块（不要写 \`\`\`json）
 - 禁止使用英文（所有值必须为中文）
-- 若图片无法识别，输出：{"mainEntity":"未知场景","sceneState":"图像信息不足","userEmotion":"迷茫","styleHints":["抽象派","极简主义","超现实主义"]}`;
+- 若图片无法识别，输出：{"mainEntity":"未知场景","sceneState":"图像信息不足","userEmotion":"迷茫","evidence":"图像信息不足","emotionCandidates":[{"label":"迷茫","score":0.7},{"label":"好奇","score":0.2},{"label":"平静","score":0.1}],"styleHints":["抽象派","极简主义","超现实主义"]}`;
 
 /* ----------------------------------------------------------------
  * 工具函数
@@ -92,14 +113,108 @@ function validateBase64(base64: string): boolean {
   return /^data:image\/(jpeg|png|jpg|webp);base64,/.test(base64);
 }
 
+function safeSnippet(input: string, maxLen: number) {
+  const s = String(input ?? "");
+  return s.length <= maxLen ? s : s.slice(0, maxLen);
+}
+
+function pickEmotionFromKeywords(text: string): string | null {
+  const t = text;
+  if (!t) return null;
+  if (/(打翻|洒|溢出|泼|一地|水渍|弄脏|碎|裂|漏)/.test(t)) return "烦躁";
+  if (/(社死|尴尬|丢脸|当众)/.test(t)) return "尴尬";
+  if (/(迟到|赶|来不及|地铁|拥挤|排队)/.test(t)) return "焦虑";
+  if (/(无聊|发呆|没意思|空空|躺平)/.test(t)) return "无聊";
+  if (/(累|疲惫|困|熬夜)/.test(t)) return "疲惫";
+  if (/(崩溃|破防|绷不住|炸了)/.test(t)) return "崩溃";
+  if (/(无奈|算了|认了|就这样)/.test(t)) return "无奈";
+  if (/(开心|快乐|好耶|耶|幸福)/.test(t)) return "开心";
+  return null;
+}
+
+async function calibrateEmotionFromText(input: {
+  requestId: string;
+  description: string;
+  userNote?: string;
+}): Promise<null | { userEmotion: string; score?: number; reason?: string }> {
+  const { requestId, description, userNote } = input;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+  try {
+    const baseUrl = TOKENHUB_BASE_URL.endsWith("/") ? TOKENHUB_BASE_URL.slice(0, -1) : TOKENHUB_BASE_URL;
+    const sys = `你是情绪判别器。根据场景描述，输出严格 JSON，不要任何多余文字。\n\n## 情绪枚举\n${EMOTION_ENUM.join("、")}\n\n## 输出格式\n{"userEmotion":"<枚举之一>","score":0.0,"reason":"<一句话证据，≤28字>"}\n\n## 要求\n- 必须选择一个最贴切的情绪\n- 置信度 score 为 0-1\n- reason 必须引用描述线索，不要物体清单`;
+
+    const user = [
+      "以下是图片的场景描述（来自视觉模型），请判定用户更可能的情绪：",
+      description.trim(),
+      userNote?.trim() ? `用户补充：${userNote.trim()}` : "",
+    ].filter(Boolean).join("\n\n");
+
+    const res = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${TOKENHUB_API_KEY}`,
+        "User-Agent": "XTDDrama/1.0",
+      },
+      body: JSON.stringify({
+        model: TOKENHUB_EMOTION_MODEL,
+        messages: [
+          { role: "system", content: sys },
+          { role: "user", content: user },
+        ],
+        temperature: 0.2,
+        max_tokens: 180,
+        stream: false,
+      }),
+      signal: controller.signal,
+    });
+
+    const rawText = await res.text().catch(() => "");
+    if (!res.ok) {
+      console.error(`[vision][${requestId}] calibrate upstream not ok`, res.status, safeSnippet(rawText, 220));
+      return null;
+    }
+
+    let payload: unknown = rawText;
+    try {
+      payload = rawText ? JSON.parse(rawText) : {};
+    } catch {
+      // ignore
+    }
+    const obj = payload as { choices?: Array<{ message?: { content?: string; reasoning_content?: string } }> };
+    const msg = obj.choices?.[0]?.message;
+    const content = (msg?.content?.trim() || msg?.reasoning_content?.trim() || "").trim();
+    if (!content) return null;
+    const jsonStr = extractJSON(content);
+    const parsed = JSON.parse(jsonStr) as Partial<{ userEmotion: string; score: number; reason: string }>;
+    const em = typeof parsed.userEmotion === "string" ? parsed.userEmotion.trim() : "";
+    if (!em || !EMOTION_ENUM.includes(em as (typeof EMOTION_ENUM)[number])) return null;
+    const score = typeof parsed.score === "number" ? parsed.score : undefined;
+    const reason = typeof parsed.reason === "string" ? parsed.reason.trim() : undefined;
+    return { userEmotion: em, score, reason };
+  } catch (e) {
+    if (e instanceof Error && e.name === "AbortError") {
+      console.error(`[vision][${requestId}] calibrate timeout`);
+      return null;
+    }
+    console.error(`[vision][${requestId}] calibrate exception`, e);
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 /* ----------------------------------------------------------------
  * 主路由处理器
  * ---------------------------------------------------------------- */
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  const requestId = randomUUID().slice(0, 8);
+
   /* 1. 环境变量检查 */
   if (!TOKENHUB_API_KEY) {
-    console.error("[vision] TOKENHUB_API_KEY 未配置");
+    console.error(`[vision][${requestId}] TOKENHUB_API_KEY 未配置`);
     return errorResponse("API_KEY_MISSING", "服务配置异常，API Key 未设置", 500);
   }
 
@@ -122,6 +237,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   /* 3. 选定模型（支持请求体临时覆盖，用于调试） */
   const selectedModel = model?.trim() || TOKENHUB_VITA_MODEL;
+  console.error(
+    `[vision][${requestId}] incoming`,
+    JSON.stringify({
+      model: selectedModel,
+      hasUserNote: Boolean(userNote?.trim()),
+      imagePrefix: imageBase64.slice(0, 32),
+      imageChars: imageBase64.length,
+    })
+  );
 
   /* 4. 构造 OpenAI 兼容多模态消息 */
   const userContent: Array<{ type: string; [key: string]: unknown }> = [
@@ -174,10 +298,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     if (!upstreamRes.ok) {
       const errText = await upstreamRes.text().catch(() => upstreamRes.statusText);
-      console.error(`[vision] 上游 API ${upstreamRes.status}:`, errText.slice(0, 300));
+      console.error(
+        `[vision][${requestId}] upstream not ok`,
+        upstreamRes.status,
+        safeSnippet(errText, 300)
+      );
       return errorResponse(
         "UPSTREAM_ERROR",
-        `大模型服务异常（${upstreamRes.status}）：${errText.slice(0, 200)}`,
+        `大模型服务异常（${upstreamRes.status}）：${errText.slice(0, 200)}（请求号：${requestId}）`,
         502
       );
     }
@@ -188,59 +316,174 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     };
 
     if (upstreamData.error) {
-      console.error("[vision] 上游业务错误：", upstreamData.error);
-      return errorResponse("UPSTREAM_ERROR", `模型返回错误：${upstreamData.error.message}`, 502);
+      console.error(`[vision][${requestId}] upstream error:`, upstreamData.error);
+      return errorResponse(
+        "UPSTREAM_ERROR",
+        `模型返回错误：${upstreamData.error.message}（请求号：${requestId}）`,
+        502
+      );
     }
 
     rawContent = upstreamData.choices?.[0]?.message?.content ?? "";
 
     if (!rawContent) {
-      console.error("[vision] 模型返回内容为空", upstreamData);
-      return errorResponse("UPSTREAM_ERROR", "模型返回内容为空", 502);
+      console.error(`[vision][${requestId}] empty content`, upstreamData);
+      return errorResponse("UPSTREAM_ERROR", `模型返回内容为空（请求号：${requestId}）`, 502);
     }
   } catch (err: unknown) {
     if (err instanceof Error && err.name === "AbortError") {
-      return errorResponse("TIMEOUT", "AI 感知超时，请稍后重试", 504);
+      return errorResponse("TIMEOUT", `AI 感知超时，请稍后重试（请求号：${requestId}）`, 504);
     }
-    console.error("[vision] fetch 异常：", err);
-    return errorResponse("UPSTREAM_ERROR", "连接大模型服务失败", 502);
+    console.error(`[vision][${requestId}] fetch 异常：`, err);
+    return errorResponse("UPSTREAM_ERROR", `连接大模型服务失败（请求号：${requestId}）`, 502);
   }
 
   /* 6. 解析 JSON */
   let analysis: VisionAnalysis;
 
   try {
+    console.error(`[vision][${requestId}] rawContent`, safeSnippet(rawContent, 220));
     const jsonStr = extractJSON(rawContent);
+    console.error(`[vision][${requestId}] extractedJSON`, safeSnippet(jsonStr, 220));
     const parsed = JSON.parse(jsonStr) as Partial<VisionAnalysis> & {
       description?: string;
+      scene_description?: string;
+      sceneDescription?: string;
+      caption?: string;
+      scene?: string;
+      objects?: unknown;
+      details?: unknown;
+      evidence?: string;
+      emotionCandidates?: Array<{
+        label?: unknown;
+        score?: unknown;
+        emotion?: unknown;
+        confidence?: unknown;
+      }>;
     };
 
     if (parsed.mainEntity && parsed.sceneState && parsed.userEmotion) {
+      const normalizedEmotion =
+        typeof parsed.userEmotion === "string" && EMOTION_ENUM.includes(parsed.userEmotion.trim() as (typeof EMOTION_ENUM)[number])
+          ? parsed.userEmotion.trim()
+          : parsed.userEmotion.trim();
+
+      const candidates = Array.isArray(parsed.emotionCandidates)
+        ? parsed.emotionCandidates
+            .map((c) => {
+              const rawLabel = (c as { label?: unknown; emotion?: unknown }).label ?? (c as { emotion?: unknown }).emotion;
+              const rawScore = (c as { score?: unknown; confidence?: unknown }).score ?? (c as { confidence?: unknown }).confidence;
+              const label = typeof rawLabel === "string" ? rawLabel.trim() : "";
+              const score = typeof rawScore === "number" ? rawScore : (typeof rawScore === "string" ? Number(rawScore) : NaN);
+              if (!label || !Number.isFinite(score)) return null;
+              if (!EMOTION_ENUM.includes(label as (typeof EMOTION_ENUM)[number])) return null;
+              return { label, score: Math.max(0, Math.min(1, score)) };
+            })
+            .filter((v): v is { label: string; score: number } => !!v)
+            .slice(0, 3)
+        : [];
+
       analysis = {
         mainEntity: String(parsed.mainEntity).trim(),
         sceneState: String(parsed.sceneState).trim(),
-        userEmotion: String(parsed.userEmotion).trim(),
+        userEmotion: normalizedEmotion,
         styleHints: Array.isArray(parsed.styleHints)
           ? parsed.styleHints.map(String).slice(0, 3)
           : undefined,
+        evidence: typeof parsed.evidence === "string" ? parsed.evidence.trim() : undefined,
+        emotionCandidates: candidates.length ? candidates : undefined,
       };
     } else if (typeof parsed.description === "string" && parsed.description.trim()) {
       /* youtu-vita 偶发只输出 { description }，与契约不一致时从长描述映射为感知结构 */
       const d = parsed.description.trim();
+      const kw = pickEmotionFromKeywords(d) ?? "好奇";
       analysis = {
         mainEntity: d.slice(0, 20),
         sceneState: d.slice(0, Math.min(40, d.length)),
-        userEmotion: "好奇",
+        userEmotion: kw,
         styleHints: Array.isArray(parsed.styleHints)
           ? parsed.styleHints.map(String).slice(0, 3)
           : ["网络化夸张", "反差戏剧感", "梗图化表达"],
+        evidence: typeof parsed.evidence === "string" ? parsed.evidence.trim() : undefined,
       };
     } else {
-      throw new Error(`缺少必要字段：${JSON.stringify(parsed).slice(0, 120)}`);
+      const descLike = (() => {
+        if (typeof parsed.scene_description === "string" && parsed.scene_description.trim()) {
+          return parsed.scene_description.trim();
+        }
+        if (typeof parsed.sceneDescription === "string" && parsed.sceneDescription.trim()) {
+          return parsed.sceneDescription.trim();
+        }
+        if (typeof parsed.caption === "string" && parsed.caption.trim()) {
+          return parsed.caption.trim();
+        }
+        // 兼容 youtu-vita 偶发输出：{ scene, objects, details }
+        if (typeof parsed.scene === "string" && parsed.scene.trim()) {
+          const objs = Array.isArray(parsed.objects)
+            ? (parsed.objects as unknown[]).map(String).map((s) => s.trim()).filter(Boolean).slice(0, 6)
+            : [];
+          const tail = objs.length ? `（物体：${objs.join("、")}）` : "";
+          return `${parsed.scene.trim()}${tail}`;
+        }
+        return "";
+      })();
+
+      if (descLike) {
+        /* youtu-vita 偶发返回 scene_description / caption 等字段：按长描述兜底映射 */
+        const kw = pickEmotionFromKeywords(descLike) ?? "好奇";
+        analysis = {
+          mainEntity: descLike.slice(0, 20),
+          sceneState: descLike.slice(0, Math.min(40, descLike.length)),
+          userEmotion: kw,
+          styleHints: Array.isArray(parsed.styleHints)
+            ? parsed.styleHints.map(String).slice(0, 3)
+            : ["网络化夸张", "反差戏剧感", "梗图化表达"],
+          evidence: typeof parsed.evidence === "string" ? parsed.evidence.trim() : undefined,
+        };
+      } else {
+        // 最后兜底：避免直接 500，给出可继续流程的极简感知
+        analysis = {
+          mainEntity: "未知场景",
+          sceneState: "图像信息不足",
+          userEmotion: "迷茫",
+          evidence: "图像信息不足",
+          styleHints: ["抽象派", "极简主义", "超现实主义"],
+        };
+      }
     }
   } catch (err) {
-    console.error("[vision] JSON 解析失败，原始输出：", rawContent, err);
-    return errorResponse("PARSE_ERROR", "AI 返回格式异常，解析失败", 500);
+    console.error(`[vision][${requestId}] JSON 解析失败`, err);
+    return errorResponse("PARSE_ERROR", `AI 返回格式异常，解析失败（请求号：${requestId}）`, 500);
+  }
+
+  // 当落入兜底描述路径，或候选置信度偏低时，尝试二次校准情绪（不引入手动纠错 UI）
+  try {
+    const evidenceText = analysis.evidence ?? "";
+    const descForCalibrate = [analysis.mainEntity, analysis.sceneState, evidenceText].filter(Boolean).join("。");
+    const topScore = Array.isArray(analysis.emotionCandidates) && analysis.emotionCandidates.length > 0
+      ? Math.max(...analysis.emotionCandidates.map((x) => x.score))
+      : null;
+    const likelyWeak =
+      analysis.userEmotion === "好奇" ||
+      analysis.userEmotion === "迷茫" ||
+      (typeof topScore === "number" && topScore < 0.55);
+    if (descForCalibrate && likelyWeak) {
+      const calibrated = await calibrateEmotionFromText({
+        requestId,
+        description: descForCalibrate,
+        userNote,
+      });
+      if (calibrated?.userEmotion && calibrated.userEmotion !== analysis.userEmotion) {
+        analysis = {
+          ...analysis,
+          userEmotion: calibrated.userEmotion,
+          evidence: calibrated.reason || analysis.evidence,
+          emotionCandidates: analysis.emotionCandidates,
+        };
+      }
+    }
+  } catch {
+    // 不阻断主流程
   }
 
   /* 7. 返回结果 */

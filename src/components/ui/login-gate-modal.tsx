@@ -90,9 +90,11 @@ export default function LoginGateModal() {
         if (error) throw error;
         const { error: signInError } = await supabase.auth.signInWithPassword({ email: e, password });
         if (signInError) throw signInError;
+        window.dispatchEvent(new CustomEvent("xtdDrama:instant-toast", { detail: { title: "已注册并登录", tone: "success" } }));
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email: e, password });
         if (error) throw error;
+        window.dispatchEvent(new CustomEvent("xtdDrama:instant-toast", { detail: { title: "登录成功", tone: "success" } }));
       }
       close();
     } catch (err: unknown) {

@@ -137,6 +137,7 @@ export default function CreatePage() {
   const [analysisResult, setAnalysisResult] = useState<VisionAnalysis | null>(null);
   const [publicUrl, setPublicUrl] = useState<string | null>(null);
   const [uploadedPreviewUrl, setUploadedPreviewUrl] = useState<string | null>(null);
+  const completedActionsRef = useRef<HTMLDivElement | null>(null);
   const [job, setJob] = useState<{
     mode: "image" | "video";
     style: string;
@@ -189,6 +190,20 @@ export default function CreatePage() {
     []
   );
 
+  // 生成完成时：弹出提示 + 滚动到操作区
+  useEffect(() => {
+    if (job?.status !== "completed" || !job.resultUrl) return;
+    showToast("Drama 图已生成！", {
+      description: "点击「发布到广场」让 NPC 来捧场。",
+      tone: "success",
+      durationMs: 5000,
+    });
+    try {
+      completedActionsRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    } catch { /* noop */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job?.status, job?.resultUrl]);
+
   const copyToClipboard = useCallback(async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
@@ -200,7 +215,10 @@ export default function CreatePage() {
 
   const downloadFromUrl = useCallback(async (url: string, filename: string) => {
     try {
-      const res = await fetch(url, { mode: "cors" });
+      // 通过服务端代理下载，绕开跨域限制
+      const proxyUrl = `/api/download?url=${encodeURIComponent(url)}&filename=${encodeURIComponent(filename)}`;
+      const res = await fetch(proxyUrl);
+      if (!res.ok) throw new Error(`proxy ${res.status}`);
       const blob = await res.blob();
       const objectUrl = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -212,7 +230,17 @@ export default function CreatePage() {
       URL.revokeObjectURL(objectUrl);
       showToast("开始下载", { tone: "info" });
     } catch {
-      showToast("下载失败", { description: "可用“打开链接”保存", tone: "error", durationMs: 3800 });
+      // 降级：新标签页打开
+      try {
+        window.open(url, '_blank', 'noopener,noreferrer');
+        showToast("已在新窗口打开", {
+          description: "右键图片选择「另存为」即可保存",
+          tone: "info",
+          durationMs: 4000,
+        });
+      } catch {
+        showToast("下载失败", { description: "可复制链接后手动保存", tone: "error", durationMs: 3800 });
+      }
     }
   }, [showToast]);
 
@@ -741,7 +769,7 @@ export default function CreatePage() {
                   <div className="absolute left-3 top-3 z-10 rounded-md border border-zinc-200/70 dark:border-white/[0.08] bg-white/85 dark:bg-[oklch(0.16_0.004_265)]/85 px-2 py-1 text-[11px] font-mono uppercase tracking-widest text-zinc-500 dark:text-zinc-500">
                     原图
                   </div>
-                  <div className="h-[min(26vh,220px)] min-h-[150px] flex items-center justify-center p-3">
+                  <div className="h-[min(32vh,300px)] min-h-[220px] flex items-center justify-center p-3">
                     {uploadedPreviewUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
@@ -757,7 +785,7 @@ export default function CreatePage() {
                   <div className="absolute left-3 top-3 z-10 rounded-md border border-zinc-200/70 dark:border-white/[0.08] bg-white/85 dark:bg-[oklch(0.16_0.004_265)]/85 px-2 py-1 text-[11px] font-mono uppercase tracking-widest text-zinc-500 dark:text-zinc-500">
                     {resultPending ? "生成中…" : "生成图"}
                   </div>
-                  <div className="h-[min(40vh,380px)] min-h-[260px] flex items-center justify-center p-3">
+                  <div className="h-[min(32vh,300px)] min-h-[220px] flex items-center justify-center p-3">
                     {completedResultUrl ? (
                       job?.mode === "video" ? (
                         <video
@@ -855,7 +883,7 @@ export default function CreatePage() {
                     )}
 
                     {job.status === "completed" && job.resultUrl && (
-                      <div className="flex flex-wrap gap-2 pt-1">
+                      <div ref={completedActionsRef} className="flex flex-wrap gap-2 pt-1">
                         <button
                           type="button"
                           onClick={() => copyToClipboard(job.resultUrl!)}

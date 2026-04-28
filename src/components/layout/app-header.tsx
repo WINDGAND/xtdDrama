@@ -49,6 +49,15 @@ export function AppHeader() {
     if (msg) Promise.resolve().then(() => setToast(msg));
   }, [pathname]);
 
+  useEffect(() => {
+    const onInstantToast = (e: Event) => {
+      const detail = (e as CustomEvent<{ title: string; tone?: "success" | "error" | "info"; durationMs?: number }>).detail;
+      if (detail?.title) setToast(detail);
+    };
+    window.addEventListener("xtdDrama:instant-toast", onInstantToast as EventListener);
+    return () => window.removeEventListener("xtdDrama:instant-toast", onInstantToast as EventListener);
+  }, []);
+
   const toggleTheme = () => setTheme(theme === "dark" ? "light" : "dark");
   const logoSrc = "/logo.png";
 

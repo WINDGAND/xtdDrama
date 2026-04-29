@@ -41,7 +41,7 @@ const TOKENHUB_BASE_URL =
 /** youtu-vita — TokenHub 上唯一经验证支持图片输入的多模态模型 */
 const TOKENHUB_VITA_MODEL =
   process.env.TOKENHUB_VITA_MODEL ?? "youtu-vita";
-const TOKENHUB_MAX_TOKENS = Number(process.env.TOKENHUB_MAX_TOKENS ?? "512");
+const TOKENHUB_MAX_TOKENS = Number(process.env.TOKENHUB_MAX_TOKENS ?? "900");
 const UPSTREAM_TIMEOUT_MS = Number(process.env.TOKENHUB_TIMEOUT_MS ?? "30000");
 const TOKENHUB_EMOTION_MODEL =
   process.env.TOKENHUB_EMOTION_MODEL ?? process.env.TOKENHUB_GUESS_MODEL ?? "hunyuan-2.0-instruct-20251111";
@@ -62,40 +62,53 @@ const EMOTION_ENUM = [
   "迷茫",
 ] as const;
 
+const MAX_MAIN_ENTITY_LEN = 36;
+const MAX_SCENE_STATE_LEN = 64;
+
+const IMAGE_TYPE_ENUM = ["portrait", "object", "food", "scene", "pet", "other"] as const;
+type ImageType = typeof IMAGE_TYPE_ENUM[number];
+
+function normalizeImageType(raw: unknown): ImageType {
+  const s = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  return IMAGE_TYPE_ENUM.includes(s as ImageType) ? (s as ImageType) : "other";
+}
+
 /* ----------------------------------------------------------------
- * System Prompt — 「敏锐的场景观察者」
+ * System Prompt — 「敏锐的场景观察者」v2
  *
  * 设计原则：
  *   1. 角色锁定：禁止模型输出任何非 JSON 内容
- *   2. 字段约束：强制输出 mainEntity / sceneState / userEmotion / styleHints
- *   3. 风格规范：精简、客观、中文
- *   4. 兜底：图片无法识别时输出预设 fallback JSON
+ *   2. 字段约束：强制输出 imageType / mainEntity / sceneState /
+ *               userEmotion / evidence / emotionCandidates / styleHints
+ *   3. imageType 感知：按类型差异化 styleHints 建议方向
+ *   4. evidence 收紧：只写可见视觉线索，格式化
+ *   5. 兜底：图片无法识别时输出预设 fallback JSON
  * ---------------------------------------------------------------- */
 const SYSTEM_PROMPT = `你是一位冷静客观的场景分析 AI，代号「观察者」。你具备真实的图像视觉理解能力，能直接"看懂"用户上传的图片。
 
 ## 核心任务
-分析用户上传的图片，输出一段**纯 JSON 字符串**，客观描述图片中的场景状态与画面传递的情绪氛围。
+分析用户上传的图片，输出一段**纯 JSON 字符串**，客观描述图片类型、场景状态与情绪氛围。
 
 ## 重要说明
 你分析的是图片本身传递的情绪氛围，而非主观猜测拍照者的心情。情绪判断必须有画面线索支撑，不得凭空推断。
 
 ## 输出格式（严格遵守，禁止任何额外文字）
-{"mainEntity":"<图像中最显著的核心主体，中文，≤20字>","sceneState":"<当前物理环境的客观状态，中文，≤30字，不含主观情绪>","userEmotion":"<情绪标签，必须从枚举里选 1 个>","evidence":"<一句话说明图片哪些视觉元素支撑了这个情绪判断，引用画面细节，≤28字>","emotionCandidates":[{"label":"<枚举情绪>","score":0.0},{"label":"<枚举情绪>","score":0.0},{"label":"<枚举情绪>","score":0.0}],"styleHints":["<改写方向1>","<改写方向2>","<改写方向3>"]}
+{"imageType":"<portrait|object|food|scene|pet|other>","mainEntity":"<图像中最显著的核心主体，中文，完整短句，禁止半截词>","sceneState":"<当前物理环境的客观状态，中文，完整短句，不含主观情绪>","userEmotion":"<情绪标签，必须从枚举里选 1 个>","evidence":"<画面可见视觉线索，格式[视觉元素]+[状态]，≤20字，例如：桌面一片狼藉>","emotionCandidates":[{"label":"<枚举情绪>","score":0.0},{"label":"<枚举情绪>","score":0.0},{"label":"<枚举情绪>","score":0.0}],"styleHints":["<改写方向1>","<改写方向2>","<改写方向3>"]}
 
 ## 字段说明
-- mainEntity: 你实际看到的核心主体，例如"堆满试卷的桌面"、"洒落在地的咖啡"、"挤满人的地铁"
-- sceneState: 你看到的客观场景，例如"昏暗宿舍，屏幕蓝光，凌晨时分"
+- imageType: 画面主体类型，portrait=人像，object=物品，food=食物，scene=风景，pet=动物，other=其他
+- mainEntity: 你实际看到的核心主体，例如"堆满试卷的桌面"、"洒落在地的咖啡"、"挤满人的地铁"；必须是完整短语，不要在词中间截断
+- sceneState: 你看到的客观场景，例如"昏暗宿舍，屏幕蓝光，凌晨时分"；必须是完整短语，不含主观情绪，不要在词中间截断
 - userEmotion: 图片整体传递的情绪氛围，从以下枚举里选 1 个最贴切的：${EMOTION_ENUM.join("、")}
-- evidence: 一句话，引用支撑情绪判断的具体画面元素（例如"液体洒一地""表情紧绷""光线昏暗"），不要写物体清单，不要主观臆断
+- evidence: 引用支撑情绪判断的具体画面视觉元素，格式"[视觉元素]+[状态]"，例如"桌面一片狼藉"、"表情紧绷眉头皱"，禁止写物体清单或主观臆断
 - emotionCandidates: 3 个候选情绪 + 置信度（0-1），按 score 从高到低排列
-- styleHints: 3 个克制幽默、真实可分享的视觉改写方向，例如["漫画分镜感","复古胶片感","日系清新插画"]。必须保留主体可辨认，不得包含恐怖/暗黑/霓虹/末日/血腥/爆炸等极端元素
+- styleHints: 3 个克制幽默、真实可分享的视觉改写方向，必须保留主体可辨认，禁止极端元素（克苏鲁/赛博朋克/末日/霓虹/恐怖/血腥）；根据 imageType 选择方向：portrait 偏漫画脸谱/画报人物，object 偏插画道具/绘本物品，food 偏美食插画/杂志感，scene 偏胶片/手账速写，pet 偏Q版/儿童绘本，other 偏漫画分镜/复古胶片
 
 ## 禁止事项
 - 禁止在 JSON 之外输出任何文字或解释
 - 禁止输出 Markdown 代码块（不要写 \`\`\`json）
-- 禁止使用英文（所有值必须为中文）
-- styleHints 禁止出现：克苏鲁、赛博朋克、末日、爆炸、霓虹、发疯、暗黑、恐怖、血腥、暴力
-- 若图片无法识别，输出：{"mainEntity":"未知场景","sceneState":"图像信息不足","userEmotion":"迷茫","evidence":"图像信息不足","emotionCandidates":[{"label":"迷茫","score":0.7},{"label":"好奇","score":0.2},{"label":"平静","score":0.1}],"styleHints":["漫画插画感","清新日系感","温柔胶片感"]}`;
+- 禁止使用英文（所有值必须为中文，imageType 枚举值除外）
+- 若图片无法识别，输出：{"imageType":"other","mainEntity":"未知场景","sceneState":"图像信息不足","userEmotion":"迷茫","evidence":"图像信息不足","emotionCandidates":[{"label":"迷茫","score":0.7},{"label":"好奇","score":0.2},{"label":"平静","score":0.1}],"styleHints":["漫画插画感","清新日系感","温柔胶片感"]}`;
 /* ----------------------------------------------------------------
  * 工具函数
  * ---------------------------------------------------------------- */
@@ -119,6 +132,27 @@ function validateBase64(base64: string): boolean {
 function safeSnippet(input: string, maxLen: number) {
   const s = String(input ?? "");
   return s.length <= maxLen ? s : s.slice(0, maxLen);
+}
+
+function normalizeText(input: unknown): string {
+  return typeof input === "string" ? input.replace(/\s+/g, " ").trim() : "";
+}
+
+function smartTrim(input: string, maxLen: number): string {
+  const s = normalizeText(input);
+  if (!s) return "";
+  if (s.length <= maxLen) return s;
+  const probe = s.slice(0, maxLen + 1);
+  const marks = ["。", "，", "；", "、", ",", ";", " "];
+  let cut = -1;
+  for (const mark of marks) {
+    const idx = probe.lastIndexOf(mark);
+    if (idx > cut) cut = idx;
+  }
+  if (cut >= Math.floor(maxLen * 0.55)) {
+    return probe.slice(0, cut).trim();
+  }
+  return `${probe.slice(0, maxLen).trim()}…`;
 }
 
 function pickEmotionFromKeywords(text: string): string | null {
@@ -387,8 +421,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         : [];
 
       analysis = {
-        mainEntity: String(parsed.mainEntity).trim(),
-        sceneState: String(parsed.sceneState).trim(),
+        imageType: normalizeImageType(parsed.imageType),
+        mainEntity: smartTrim(normalizeText(parsed.mainEntity), MAX_MAIN_ENTITY_LEN),
+        sceneState: smartTrim(normalizeText(parsed.sceneState), MAX_SCENE_STATE_LEN),
         userEmotion: normalizedEmotion,
         styleHints: Array.isArray(parsed.styleHints)
           ? parsed.styleHints.map(String).slice(0, 3)
@@ -401,8 +436,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       const d = parsed.description.trim();
       const kw = pickEmotionFromKeywords(d) ?? "好奇";
       analysis = {
-        mainEntity: d.slice(0, 20),
-        sceneState: d.slice(0, Math.min(40, d.length)),
+        imageType: normalizeImageType(parsed.imageType),
+        mainEntity: smartTrim(d, MAX_MAIN_ENTITY_LEN),
+        sceneState: smartTrim(d, MAX_SCENE_STATE_LEN),
         userEmotion: kw,
         styleHints: Array.isArray(parsed.styleHints)
           ? parsed.styleHints.map(String).slice(0, 3)
@@ -435,8 +471,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         /* youtu-vita 偶发返回 scene_description / caption 等字段：按长描述兜底映射 */
         const kw = pickEmotionFromKeywords(descLike) ?? "好奇";
         analysis = {
-          mainEntity: descLike.slice(0, 20),
-          sceneState: descLike.slice(0, Math.min(40, descLike.length)),
+          imageType: normalizeImageType(parsed.imageType),
+          mainEntity: smartTrim(descLike, MAX_MAIN_ENTITY_LEN),
+          sceneState: smartTrim(descLike, MAX_SCENE_STATE_LEN),
           userEmotion: kw,
           styleHints: Array.isArray(parsed.styleHints)
             ? parsed.styleHints.map(String).slice(0, 3)

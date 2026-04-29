@@ -29,10 +29,13 @@ export async function middleware(req: NextRequest) {
 
 export const config = {
   /**
-   * 仅对需要读取 cookie session 的受保护 API 触发 session 刷新。
-   * 页面导航与 RSC 请求不再经过中间件，避免每次切页 await getUser 造成卡顿。
+   * 对需要读取 cookie session 的受保护 API 与关键页面触发 session 刷新。
+   * /me 等页面会在 Server Component 里直接调用 auth.getUser，
+   * 若不经过中间件刷新 cookie，容易出现“客户端已登录、服务端判未登录”的状态分裂。
    */
   matcher: [
+    "/me",
+    "/settings",
     "/api/posts/create",
     "/api/posts/delete",
     "/api/profiles/me",

@@ -59,6 +59,18 @@ export interface VisionAnalysis {
    * 模型自发建议的 1-3 个夸张化改写方向关键词
    */
   styleHints?: string[];
+
+  /**
+   * 图片类型（可选）：感知层对画面主体类型的分类。
+   * 用于决策层按类型差异化 reply 策略和 options 方向。
+   * - portrait : 画面主体是人（自拍/多人）
+   * - object   : 无生命物品（桌面/杯子/书本等）
+   * - food     : 食物/饮品
+   * - scene    : 风景/环境（无突出主体）
+   * - pet      : 动物/宠物
+   * - other    : 无法归类
+   */
+  imageType?: "portrait" | "object" | "food" | "scene" | "pet" | "other";
 }
 
 /* ----------------------------------------------------------------

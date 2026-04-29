@@ -11,14 +11,16 @@ type Props = {
 
 export function ImageLightbox({ src, alt = "", onClose }: Props) {
   const closeBtnRef = useRef<HTMLButtonElement | null>(null);
+  const imageWrapRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
-    window.addEventListener("keydown", onKeyDown);
+    // 使用捕获阶段，降低被页面其他 keydown 处理器拦截的概率
+    window.addEventListener("keydown", onKeyDown, true);
     closeBtnRef.current?.focus();
-    return () => window.removeEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [onClose]);
 
   // 防止 body 滚动
@@ -44,7 +46,10 @@ export function ImageLightbox({ src, alt = "", onClose }: Props) {
       />
 
       {/* 顶栏 */}
-      <div className="relative z-10 flex items-center justify-between px-4 py-3 pointer-events-none">
+      <div
+        className="relative z-10 flex items-center justify-between px-4 py-3 pointer-events-none"
+        onClick={onClose}
+      >
         <span className="text-sm font-medium text-white/80 select-none">查看大图</span>
         <button
           ref={closeBtnRef}
@@ -65,7 +70,11 @@ export function ImageLightbox({ src, alt = "", onClose }: Props) {
       </div>
 
       {/* 图片区域 */}
-      <div className="relative z-10 flex-1 flex items-center justify-center px-4 pb-6 min-h-0">
+      <div
+        ref={imageWrapRef}
+        className="relative z-10 flex-1 flex items-center justify-center px-4 pb-6 min-h-0"
+        onClick={onClose}
+      >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={src}

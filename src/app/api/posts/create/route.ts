@@ -19,8 +19,39 @@ function guessExtFromContentType(ct: string | null | undefined) {
   return "bin";
 }
 
+async function fetchWithRetry(input: string, init: RequestInit, retry = 2): Promise<Response> {
+  let lastErr: unknown = null;
+  for (let i = 0; i <= retry; i++) {
+    try {
+      const res = await fetch(input, init);
+      if (res.ok) return res;
+      if (i >= retry) return res;
+    } catch (e) {
+      lastErr = e;
+      if (i >= retry) throw e;
+    }
+    await new Promise((r) => setTimeout(r, 250 * (i + 1)));
+  }
+  throw lastErr instanceof Error ? lastErr : new Error("request_failed");
+}
+
+async function verifyPublicUrl(url: string) {
+  const res = await fetchWithRetry(
+    url,
+    {
+      method: "GET",
+      cache: "no-store",
+      headers: { Range: "bytes=0-1" },
+    },
+    1
+  );
+  if (!res.ok) {
+    throw new Error(`稳定链接校验失败：${res.status}`);
+  }
+}
+
 async function mirrorToStorage(supabase: ReturnType<typeof createServerSupabaseClient>, inputUrl: string, userId: string) {
-  const res = await fetch(inputUrl, { cache: "no-store" });
+  const res = await fetchWithRetry(inputUrl, { cache: "no-store" }, 2);
   if (!res.ok) {
     throw new Error(`拉取生成结果失败：${res.status}`);
   }
@@ -45,6 +76,7 @@ async function mirrorToStorage(supabase: ReturnType<typeof createServerSupabaseC
   const { data: urlData } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(storagePath);
   const publicUrl = urlData?.publicUrl;
   if (!publicUrl) throw new Error("获取 publicUrl 失败");
+  await verifyPublicUrl(publicUrl);
   return publicUrl;
 }
 
@@ -81,6 +113,13 @@ export async function POST(req: NextRequest) {
       } catch (e) {
         console.error("[posts/create] mirror failed:", e);
         return fail("UPSTREAM_ERROR", "生成结果链接已失效或不可用，请重新生成后再发布", 502);
+      }
+    } else {
+      try {
+        await verifyPublicUrl(stableResultUrl);
+      } catch (e) {
+        console.error("[posts/create] verify stable url failed:", e);
+        return fail("UPSTREAM_ERROR", "当前图片链接暂不可访问，请稍后重试发布", 502);
       }
     }
 

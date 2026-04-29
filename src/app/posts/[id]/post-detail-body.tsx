@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getCachedPostById } from "@/lib/cached-feeds";
 import { LikeBar } from "@/components/likes/like-bar";
+import { SmartImage } from "@/components/ui/smart-image";
 
 export async function PostDetailBody({ id }: { id: string }) {
   const post = await getCachedPostById(id);
@@ -43,18 +44,21 @@ export async function PostDetailBody({ id }: { id: string }) {
 
       <div className="mt-4">
         {post.mode === "image" ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
+          <SmartImage
             src={post.result_url}
             alt="生成结果"
-            className="w-full rounded-xl object-cover border border-zinc-200/30 dark:border-white/[0.08]"
-            style={{ maxHeight: 520 }}
+            page="post-detail"
+            slot="post-image"
+            sizes="(max-width: 768px) 100vw, 900px"
+            className="h-[520px]"
+            imageClassName="object-cover"
           />
         ) : (
           <video
             src={post.result_url}
             controls
             playsInline
+            preload="metadata"
             className="w-full rounded-xl border border-zinc-200/30 dark:border-white/[0.08]"
             style={{ maxHeight: 520 }}
           />

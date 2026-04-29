@@ -36,6 +36,17 @@ function parseDataUrl(dataUrl: string): { mime: string; buffer: Buffer; ext: str
   return { mime, buffer, ext };
 }
 
+async function verifyPublicUrl(url: string) {
+  const res = await fetch(url, {
+    method: "GET",
+    cache: "no-store",
+    headers: { Range: "bytes=0-1" },
+  });
+  if (!res.ok) {
+    throw new Error(`稳定链接校验失败：${res.status}`);
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as Partial<UploadRequestBody>;
@@ -77,6 +88,12 @@ export async function POST(req: NextRequest) {
     const publicUrl = urlData?.publicUrl;
     if (!publicUrl) {
       return fail("获取 publicUrl 失败", 502);
+    }
+    try {
+      await verifyPublicUrl(publicUrl);
+    } catch (e) {
+      console.error("[storage/upload] publicUrl verify failed:", e);
+      return fail("上传已完成但链接暂不可访问，请重试", 502);
     }
 
     return NextResponse.json(

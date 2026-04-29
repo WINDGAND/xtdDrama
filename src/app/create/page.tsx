@@ -9,6 +9,7 @@ import { InlineAlert } from "@/components/ui/inline-alert";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { requestLogin } from "@/lib/request-login";
 import { DramaGeneratingLoader } from "@/components/upload/drama-generating-loader";
+import { SmartImage } from "@/components/ui/smart-image";
 import type { VisionAnalysis, VisionResponse } from "@/types/vision";
 import type { GuessOption } from "@/types/guess";
 import { useAuth } from "@/components/providers/auth-provider";
@@ -218,6 +219,8 @@ export default function CreatePage() {
   const lastGenerateRef = useRef<{ option: GuessOption; mode: "image" | "video" } | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rePickInputRef = useRef<HTMLInputElement | null>(null);
+  const workspaceRootRef = useRef<HTMLDivElement | null>(null);
+  const prevWorkspaceModeRef = useRef(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const dramaWordCls = useMemo(() => [
     "bg-gradient-to-r from-blue-600 via-violet-500 to-fuchsia-500",
@@ -256,6 +259,19 @@ export default function CreatePage() {
     []
   );
 
+  const alignWorkspaceTop = useCallback(() => {
+    const behavior: ScrollBehavior = prefersReducedMotion ? "auto" : "smooth";
+    try {
+      workspaceRootRef.current?.scrollIntoView({ behavior, block: "start" });
+    } catch {
+      // ignore and fallback below
+    }
+    // 双保险：直接对窗口与文档根节点对顶，避免被过渡/重排覆盖。
+    window.scrollTo({ top: 0, behavior });
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  }, [prefersReducedMotion]);
+
   // 生成完成时：弹出提示 + 滚动到操作区
   useEffect(() => {
     if (job?.status !== "completed" || !job.resultUrl) return;
@@ -269,6 +285,25 @@ export default function CreatePage() {
     } catch { /* noop */ }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job?.status, job?.resultUrl]);
+
+  // 从 intro 切换到 workspace 时，将视口对齐到工作区顶部，避免保留在页面下方。
+  useEffect(() => {
+    const wasWorkspaceMode = prevWorkspaceModeRef.current;
+    prevWorkspaceModeRef.current = workspaceMode;
+    if (!workspaceMode || wasWorkspaceMode) return;
+
+    // 进入 workspace 后，短时间内重复对顶，抵消动画与异步布局带来的回弹。
+    const rafId = requestAnimationFrame(alignWorkspaceTop);
+    const t1 = window.setTimeout(alignWorkspaceTop, 60);
+    const t2 = window.setTimeout(alignWorkspaceTop, 180);
+    const t3 = window.setTimeout(alignWorkspaceTop, 320);
+    return () => {
+      cancelAnimationFrame(rafId);
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+    };
+  }, [workspaceMode, alignWorkspaceTop]);
 
   const copyToClipboard = useCallback(async (text: string) => {
     try {
@@ -345,6 +380,7 @@ export default function CreatePage() {
     try {
       const base64 = await readFileAsDataUrl(file);
       handleUploadSuccess(base64);
+      requestAnimationFrame(alignWorkspaceTop);
 
       const uploadTask = (async () => {
         try {
@@ -388,7 +424,7 @@ export default function CreatePage() {
       console.error("[CreatePage] 重新选择处理异常：", e);
       showToast("重新选择失败", { description: "请稍后重试", tone: "error", durationMs: 3800 });
     }
-  }, [handleAnalysisComplete, handlePublicUrlReady, handleUploadSuccess, showToast]);
+  }, [alignWorkspaceTop, handleAnalysisComplete, handlePublicUrlReady, handleUploadSuccess, showToast]);
 
   const handleRePickInputChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     const file = e.currentTarget.files?.[0] ?? null;
@@ -795,6 +831,7 @@ export default function CreatePage() {
         ) : (
           <motion.div
             key="workspace"
+            ref={workspaceRootRef}
             initial={prefersReducedMotion ? false : { opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={prefersReducedMotion ? undefined : { opacity: 0, y: -8 }}
@@ -862,11 +899,15 @@ export default function CreatePage() {
                   )}
                   <div className="h-[min(32vh,300px)] min-h-[220px] flex items-center justify-center p-3">
                     {uploadedPreviewUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
+                      <SmartImage
                         src={uploadedPreviewUrl}
                         alt="上传的原图"
-                        className="h-full w-full object-contain cursor-zoom-in"
+                        page="create"
+                        slot="workspace-origin"
+                        sizes="(max-width: 1024px) 100vw, 720px"
+                        className="h-full w-full border-0 cursor-zoom-in"
+                        imageClassName="object-contain"
+                        fallbackHeightClassName="h-full"
                         onClick={() => setLightboxSrc(uploadedPreviewUrl)}
                       />
                     ) : null}
@@ -887,11 +928,15 @@ export default function CreatePage() {
                           className="h-full w-full object-contain"
                         />
                       ) : (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
+                        <SmartImage
                           src={completedResultUrl}
                           alt="AI 生成图"
-                          className="h-full w-full object-contain cursor-zoom-in"
+                          page="create"
+                          slot="workspace-result"
+                          sizes="(max-width: 1024px) 100vw, 720px"
+                          className="h-full w-full border-0 cursor-zoom-in"
+                          imageClassName="object-contain"
+                          fallbackHeightClassName="h-full"
                           onClick={() => setLightboxSrc(completedResultUrl)}
                         />
                       )

@@ -7,6 +7,7 @@ import { CommentsToggle } from "./comments-toggle";
 import { LikeBar } from "@/components/likes/like-bar";
 import { PostFooterActions } from "./post-footer-actions";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
+import { SmartImage } from "@/components/ui/smart-image";
 
 function formatTime(input: string) {
   const d = new Date(input);
@@ -26,13 +27,16 @@ function Avatar({ name, avatarUrl }: { name: string; avatarUrl?: string | null }
   return (
     <div className="h-10 w-10 rounded-lg overflow-hidden border border-zinc-200/80 dark:border-white/[0.10] bg-white dark:bg-white/[0.02]">
       {avatarUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
+        <SmartImage
           src={avatarUrl}
           alt={`${name} 的头像`}
-          loading="lazy"
-          decoding="async"
-          className="h-full w-full object-cover"
+          page="plaza"
+          slot="avatar"
+          sizes="40px"
+          className="h-full w-full rounded-none border-0"
+          imageClassName="object-cover"
+          fallbackHeightClassName="h-full"
+          enableLightSkeleton={false}
         />
       ) : (
         <div
@@ -50,7 +54,7 @@ function Avatar({ name, avatarUrl }: { name: string; avatarUrl?: string | null }
   );
 }
 
-function MomentsCard({ post }: { post: PlazaPostRow }) {
+function MomentsCard({ post, isFirst }: { post: PlazaPostRow; isFirst: boolean }) {
   const displayName = post.author_display_name?.trim() || "未命名";
   const entity = post.main_entity?.trim() || "一个瞬间";
   const emotion = post.user_emotion?.trim() || "有点复杂";
@@ -89,17 +93,15 @@ function MomentsCard({ post }: { post: PlazaPostRow }) {
 
           <div className="mt-3">
             {post.mode === "image" ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
+              <SmartImage
                 src={post.result_url}
                 alt="生成图"
-                loading="lazy"
-                decoding="async"
-                className={[
-                  "rounded-xl object-cover max-w-full cursor-zoom-in",
-                  "border border-zinc-200/30 dark:border-white/[0.08]",
-                ].join(" ")}
-                style={{ maxHeight: 360 }}
+                page="plaza"
+                slot="post-image"
+                sizes="(max-width: 768px) calc(100vw - 64px), 520px"
+                priority={isFirst}
+                className="aspect-square w-full max-w-[520px] cursor-zoom-in"
+                imageClassName="object-cover"
                 onClick={openLightbox}
               />
             ) : (
@@ -108,6 +110,7 @@ function MomentsCard({ post }: { post: PlazaPostRow }) {
                   src={post.result_url}
                   controls
                   playsInline
+                  preload="metadata"
                   className="w-full"
                   style={{ maxHeight: 360 }}
                 />
@@ -167,8 +170,8 @@ export function PlazaFeedListClient({ initialPosts }: { initialPosts: PlazaPostR
 
   return (
     <div className="mt-6">
-      {posts.map((p) => (
-        <MomentsCard key={p.id} post={p} />
+      {posts.map((p, idx) => (
+        <MomentsCard key={p.id} post={p} isFirst={idx === 0} />
       ))}
     </div>
   );

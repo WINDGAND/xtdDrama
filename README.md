@@ -34,3 +34,19 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## Image Rollout Switches
+
+The image loading improvements are controlled by runtime flags:
+
+- `NEXT_PUBLIC_SMART_IMAGE_ENABLED` (default: `true`)
+- `NEXT_PUBLIC_NEXT_IMAGE_ENABLED` (default: `true`)
+- `NEXT_PUBLIC_IMAGE_METRICS_ENABLED` (default: `true`)
+
+Set any of them to `false` to rollback selectively without reverting code.
+
+## Image Metrics Baseline
+
+- Client-side image load/error events are buffered in `sessionStorage` key `xtdDrama.imageMetrics.buffer`.
+- The same events are sent to `POST /api/metrics/image` for server-side logging.
+- Useful fields: `event`, `page`, `slot`, `srcHost`, `durationMs`, `reason`.

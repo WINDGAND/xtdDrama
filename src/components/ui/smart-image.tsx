@@ -59,22 +59,21 @@ export function SmartImage({
         className,
       ].join(" ")}
     >
-      {status !== "loaded" && enableLightSkeleton ? (
+      {/* 骨架：仅在加载中显示，加 pointer-events-none 防止拦截事件 */}
+      {status === "loading" && enableLightSkeleton ? (
         <div
-          className={[
-            "absolute inset-0 animate-pulse bg-zinc-100/80 dark:bg-white/[0.05]",
-            fallbackHeightClassName,
-          ].join(" ")}
+          className="absolute inset-0 animate-pulse bg-zinc-100/80 dark:bg-white/[0.05] pointer-events-none"
           aria-hidden="true"
         />
       ) : null}
 
       {status === "error" ? (
+        /* 错误态：absolute inset-0 填满容器，z-10 确保在骨架之上 */
         <div
           className={[
+            "absolute inset-0 z-10",
             "flex flex-col items-center justify-center gap-2 text-center px-4",
             "text-xs text-zinc-500 dark:text-zinc-400",
-            fallbackHeightClassName,
           ].join(" ")}
         >
           <span>图片加载失败</span>

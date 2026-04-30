@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getCachedPostById } from "@/lib/cached-feeds";
 import { LikeBar } from "@/components/likes/like-bar";
 import { SmartImage } from "@/components/ui/smart-image";
+import { LiveLikeVideo } from "@/components/ui/live-like-video";
 
 export async function PostDetailBody({ id }: { id: string }) {
   const post = await getCachedPostById(id);
@@ -38,7 +39,7 @@ export async function PostDetailBody({ id }: { id: string }) {
           </div>
         </div>
         <span className="text-[11px] font-mono text-zinc-500 dark:text-zinc-500">
-          {post.mode === "image" ? "IMG" : "VID"}
+          {post.mode === "image" ? "IMG" : "LIVE"}
         </span>
       </div>
 
@@ -54,13 +55,12 @@ export async function PostDetailBody({ id }: { id: string }) {
             imageClassName="object-cover"
           />
         ) : (
-          <video
+          <LiveLikeVideo
             src={post.result_url}
-            controls
-            playsInline
-            preload="metadata"
-            className="w-full rounded-xl border border-zinc-200/30 dark:border-white/[0.08]"
-            style={{ maxHeight: 520 }}
+            page="post-detail"
+            slot="post-video"
+            className="h-[520px] w-full"
+            videoClassName="object-cover"
           />
         )}
       </div>

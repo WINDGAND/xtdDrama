@@ -8,8 +8,9 @@ import { Toast } from "@/components/ui/toast";
 import { InlineAlert } from "@/components/ui/inline-alert";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { requestLogin } from "@/lib/request-login";
-import { DramaGeneratingLoader } from "@/components/upload/drama-generating-loader";
+import { DramaGeneratingLoader, ElapsedBadge } from "@/components/upload/drama-generating-loader";
 import { SmartImage } from "@/components/ui/smart-image";
+import { LiveLikeVideo } from "@/components/ui/live-like-video";
 import type { VisionAnalysis, VisionResponse } from "@/types/vision";
 import type { GuessOption } from "@/types/guess";
 import { useAuth } from "@/components/providers/auth-provider";
@@ -918,14 +919,21 @@ export default function CreatePage() {
                   <div className="absolute left-3 top-3 z-10 rounded-md border border-zinc-200/70 dark:border-white/[0.08] bg-white/85 dark:bg-[oklch(0.16_0.004_265)]/85 px-2 py-1 text-[11px] font-mono uppercase tracking-widest text-zinc-500 dark:text-zinc-500">
                     {resultPending ? "生成中…" : "生成图"}
                   </div>
+                  {resultPending && (
+                    <div className="absolute right-3 bottom-3 z-10">
+                      <ElapsedBadge />
+                    </div>
+                  )}
                   <div className="h-[min(32vh,300px)] min-h-[220px] flex items-center justify-center p-3">
                     {completedResultUrl ? (
                       job?.mode === "video" ? (
-                        <video
+                        <LiveLikeVideo
                           src={completedResultUrl}
-                          controls
-                          playsInline
-                          className="h-full w-full object-contain"
+                          page="create"
+                          slot="workspace-result"
+                          className="h-full w-full"
+                          videoClassName="object-contain"
+                          onViewFull={() => setLightboxSrc(completedResultUrl)}
                         />
                       ) : (
                         <SmartImage
@@ -1009,14 +1017,18 @@ export default function CreatePage() {
                 )}
 
                 {analysisResult && (
-                  <GuessRefine analysis={analysisResult} onGenerate={handleGenerate} />
+                  <GuessRefine
+                    analysis={analysisResult}
+                    onGenerate={handleGenerate}
+                    isGenerating={resultPending}
+                  />
                 )}
 
                 {job && (
                   <div className="border-t border-zinc-100 dark:border-white/[0.06] pt-4 flex flex-col gap-3">
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] font-medium text-zinc-500 dark:text-zinc-500 uppercase tracking-widest">
-                        {job.mode === "image" ? "HY-Image-V3.0" : "HY-Video-1.5"}
+                        {job.mode === "image" ? "HY-Image-V3.0" : "HY-Video · Live 图"}
                       </span>
                       <span className={[
                         "text-[11px] px-2 py-0.5 rounded-full font-medium border",
@@ -1052,7 +1064,7 @@ export default function CreatePage() {
                           type="button"
                           onClick={() => downloadFromUrl(
                             job.resultUrl!,
-                            `drama-${job.mode}-${Date.now()}${job.mode === "image" ? ".png" : ".mp4"}`
+                            `drama-${job.mode === "image" ? "image" : "live"}-${Date.now()}${job.mode === "image" ? ".png" : ".mp4"}`
                           )}
                           className="h-8 px-3 rounded-lg text-xs font-medium border border-zinc-200/80 dark:border-white/[0.10] text-zinc-700 dark:text-zinc-200 bg-white dark:bg-white/[0.02] hover:bg-zinc-50 dark:hover:bg-white/[0.05] transition-colors"
                         >

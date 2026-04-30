@@ -8,6 +8,7 @@ import { LikeBar } from "@/components/likes/like-bar";
 import { PostFooterActions } from "./post-footer-actions";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { SmartImage } from "@/components/ui/smart-image";
+import { LiveLikeVideo } from "@/components/ui/live-like-video";
 
 function formatTime(input: string) {
   const d = new Date(input);
@@ -105,16 +106,13 @@ function MomentsCard({ post, isFirst }: { post: PlazaPostRow; isFirst: boolean }
                 onClick={openLightbox}
               />
             ) : (
-              <div className="rounded-xl border border-zinc-200/30 dark:border-white/[0.08] overflow-hidden">
-                <video
-                  src={post.result_url}
-                  controls
-                  playsInline
-                  preload="metadata"
-                  className="w-full"
-                  style={{ maxHeight: 360 }}
-                />
-              </div>
+              <LiveLikeVideo
+                src={post.result_url}
+                page="plaza"
+                slot="post-video"
+                className="aspect-square w-full max-w-[520px]"
+                videoClassName="object-cover"
+              />
             )}
           </div>
 

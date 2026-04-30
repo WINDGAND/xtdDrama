@@ -172,16 +172,20 @@ function RotatingCopy() {
   );
 }
 
-/* -------- 计时器 -------- */
-function ElapsedTimer({ startedAt }: { startedAt: number }) {
+/**
+ * ElapsedBadge — 挂载即开始计时，无需传 startedAt。
+ * 用于放置在生成容器的右下角，与左上角标签对称。
+ */
+export function ElapsedBadge() {
+  const startedAt = useRef(Date.now());
   const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
     const id = setInterval(() => {
-      setElapsed(Math.floor((Date.now() - startedAt) / 1000));
+      setElapsed(Math.floor((Date.now() - startedAt.current) / 1000));
     }, 1000);
     return () => clearInterval(id);
-  }, [startedAt]);
+  }, []);
 
   const mm = String(Math.floor(elapsed / 60)).padStart(2, "0");
   const ss = String(elapsed % 60).padStart(2, "0");
@@ -195,8 +199,6 @@ function ElapsedTimer({ startedAt }: { startedAt: number }) {
 
 /* -------- 主组件 -------- */
 export function DramaGeneratingLoader({ status }: DramaGeneratingLoaderProps) {
-  const startedAtRef = useRef(Date.now());
-
   return (
     <motion.div
       initial={{ opacity: 0, y: 6 }}
@@ -212,9 +214,6 @@ export function DramaGeneratingLoader({ status }: DramaGeneratingLoaderProps) {
 
       {/* 轮换文案 */}
       <RotatingCopy />
-
-      {/* 计时器 */}
-      <ElapsedTimer startedAt={startedAtRef.current} />
     </motion.div>
   );
 }

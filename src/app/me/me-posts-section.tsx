@@ -57,7 +57,7 @@ export async function MePostsSection({ userId }: { userId: string }) {
               <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
                 {p.main_entity ?? "未记录主实体"} · {formatTime(p.created_at)}
                 <span className="ml-2 font-mono text-[11px] text-zinc-500 dark:text-zinc-500">
-                  {p.mode === "image" ? "IMG" : "VID"}
+                  {p.mode === "image" ? "IMG" : "LIVE"}
                 </span>
               </div>
             </div>

@@ -64,6 +64,9 @@ const EMOTION_ENUM = [
 
 const MAX_MAIN_ENTITY_LEN = 36;
 const MAX_SCENE_STATE_LEN = 64;
+const DEFAULT_STYLE_HINTS = ["网络化夸张", "反差戏剧感", "梗图化表达"];
+const FALLBACK_MAIN_ENTITY = "未知场景";
+const FALLBACK_SCENE_STATE = "图像信息不足";
 
 const IMAGE_TYPE_ENUM = ["portrait", "object", "food", "scene", "pet", "other"] as const;
 type ImageType = typeof IMAGE_TYPE_ENUM[number];
@@ -167,6 +170,140 @@ function pickEmotionFromKeywords(text: string): string | null {
   if (/(无奈|算了|认了|就这样)/.test(t)) return "无奈";
   if (/(开心|快乐|好耶|耶|幸福)/.test(t)) return "开心";
   return null;
+}
+
+function toComparableText(input: string): string {
+  return normalizeText(input).replace(/[，。；、,\s]/g, "");
+}
+
+function isNearDuplicateText(a: string, b: string): boolean {
+  const x = toComparableText(a);
+  const y = toComparableText(b);
+  if (!x || !y) return false;
+  if (x === y) return true;
+  return x.includes(y) || y.includes(x);
+}
+
+function pickDistinctSceneState(mainEntity: string, candidates: string[]): string {
+  const filtered = candidates
+    .map((s) => normalizeText(s))
+    .filter(Boolean)
+    .filter((s) => !isNearDuplicateText(s, mainEntity));
+  if (!filtered.length) return "场景信息较少";
+  return smartTrim(filtered.slice(0, 2).join("；"), MAX_SCENE_STATE_LEN);
+}
+
+function normalizeEmotionToEnum(input: {
+  userEmotion?: string;
+  mainEntity: string;
+  sceneState: string;
+  evidence?: string;
+}): string {
+  const raw = normalizeText(input.userEmotion);
+  if (raw && EMOTION_ENUM.includes(raw as (typeof EMOTION_ENUM)[number])) return raw;
+  const fromKeywords = pickEmotionFromKeywords(
+    [input.mainEntity, input.sceneState, input.evidence ?? ""].filter(Boolean).join("；")
+  );
+  return fromKeywords ?? "好奇";
+}
+
+function enforceVisionBoundaries(analysis: VisionAnalysis): VisionAnalysis {
+  const mainEntity = smartTrim(normalizeText(analysis.mainEntity), MAX_MAIN_ENTITY_LEN);
+  const sceneRaw = normalizeText(analysis.sceneState);
+  const sceneCandidates = sceneRaw
+    ? sceneRaw.split(/[；。]/).map((s) => normalizeText(s)).filter(Boolean)
+    : [];
+  const sceneState = pickDistinctSceneState(mainEntity, sceneCandidates.length ? sceneCandidates : [sceneRaw]);
+  const evidence = typeof analysis.evidence === "string" ? normalizeText(analysis.evidence) : undefined;
+  const userEmotion = normalizeEmotionToEnum({
+    userEmotion: analysis.userEmotion,
+    mainEntity,
+    sceneState,
+    evidence,
+  });
+
+  return {
+    ...analysis,
+    mainEntity,
+    sceneState,
+    userEmotion,
+    evidence,
+  };
+}
+
+function isUsableAnalysis(analysis: VisionAnalysis): boolean {
+  const mainEntity = normalizeText(analysis.mainEntity);
+  const sceneState = normalizeText(analysis.sceneState);
+  if (!mainEntity || !sceneState) return false;
+  if (mainEntity.length < 2 || sceneState.length < 2) return false;
+  if (mainEntity === FALLBACK_MAIN_ENTITY) return false;
+  if (sceneState === FALLBACK_SCENE_STATE) return false;
+  return true;
+}
+
+function mapAnalysisFromDescription(input: {
+  description: string;
+  imageType?: unknown;
+  styleHints?: unknown;
+  evidence?: unknown;
+}): VisionAnalysis {
+  const desc = normalizeText(input.description);
+  const kw = pickEmotionFromKeywords(desc) ?? "好奇";
+  return {
+    imageType: normalizeImageType(input.imageType),
+    mainEntity: smartTrim(desc, MAX_MAIN_ENTITY_LEN),
+    sceneState: smartTrim(desc, MAX_SCENE_STATE_LEN),
+    userEmotion: kw,
+    styleHints: Array.isArray(input.styleHints)
+      ? input.styleHints.map(String).slice(0, 3)
+      : DEFAULT_STYLE_HINTS,
+    evidence: typeof input.evidence === "string" ? input.evidence.trim() : undefined,
+  };
+}
+
+function mapAnalysisFromElements(input: {
+  elements?: unknown;
+  imageType?: unknown;
+  styleHints?: unknown;
+}): VisionAnalysis | null {
+  if (!Array.isArray(input.elements)) return null;
+  const lines = input.elements
+    .map((item) => {
+      if (typeof item === "string") return normalizeText(item);
+      if (typeof item !== "object" || item === null) return "";
+      const obj = item as Record<string, unknown>;
+      const raw =
+        obj.description ??
+        obj.detail ??
+        obj.caption ??
+        obj.text ??
+        obj.name;
+      return normalizeText(raw);
+    })
+    .filter(Boolean);
+
+  if (!lines.length) return null;
+
+  const uniqueLines = Array.from(new Set(lines)).slice(0, 6);
+  const mainEntity = smartTrim(uniqueLines[0], MAX_MAIN_ENTITY_LEN);
+  const sceneState = pickDistinctSceneState(mainEntity, uniqueLines.slice(1, 4));
+  const evidence = smartTrim(
+    uniqueLines.find((s) => !isNearDuplicateText(s, mainEntity)) ?? uniqueLines[0],
+    20
+  );
+  const emotionSource = uniqueLines.join("；");
+  const userEmotion = pickEmotionFromKeywords(emotionSource) ?? "好奇";
+
+  return {
+    imageType: normalizeImageType(input.imageType),
+    mainEntity,
+    sceneState,
+    userEmotion,
+    evidence: evidence || undefined,
+    styleHints: Array.isArray(input.styleHints)
+      ? input.styleHints.map(String).slice(0, 3)
+      : DEFAULT_STYLE_HINTS,
+  };
 }
 
 async function calibrateEmotionFromText(input: {
@@ -377,18 +514,33 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   /* 6. 解析 JSON */
   let analysis: VisionAnalysis;
+  let parsePath: "strict" | "description" | "scene" | "elements" | "fallback" = "fallback";
 
   try {
     console.error(`[vision][${requestId}] rawContent`, safeSnippet(rawContent, 220));
     const jsonStr = extractJSON(rawContent);
     console.error(`[vision][${requestId}] extractedJSON`, safeSnippet(jsonStr, 220));
     const parsed = JSON.parse(jsonStr) as Partial<VisionAnalysis> & {
+      image_type?: string;
+      main_entity?: string;
+      scene_state?: string;
+      user_emotion?: string;
+      style_hints?: string[];
+      emotion_candidates?: Array<{
+        label?: unknown;
+        score?: unknown;
+        emotion?: unknown;
+        confidence?: unknown;
+      }>;
       description?: string;
+      imageDescription?: string;
+      image_description?: string;
       scene_description?: string;
       sceneDescription?: string;
       caption?: string;
       scene?: string;
       objects?: unknown;
+      elements?: unknown;
       details?: unknown;
       evidence?: string;
       emotionCandidates?: Array<{
@@ -399,14 +551,25 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       }>;
     };
 
-    if (parsed.mainEntity && parsed.sceneState && parsed.userEmotion) {
-      const normalizedEmotion =
-        typeof parsed.userEmotion === "string" && EMOTION_ENUM.includes(parsed.userEmotion.trim() as (typeof EMOTION_ENUM)[number])
-          ? parsed.userEmotion.trim()
-          : parsed.userEmotion.trim();
+    let resolved: VisionAnalysis | null = null;
 
-      const candidates = Array.isArray(parsed.emotionCandidates)
-        ? parsed.emotionCandidates
+    const strictMainEntity = normalizeText(parsed.mainEntity ?? parsed.main_entity);
+    const strictSceneState = normalizeText(parsed.sceneState ?? parsed.scene_state);
+    const strictUserEmotion = normalizeText(parsed.userEmotion ?? parsed.user_emotion);
+    const strictImageType = parsed.imageType ?? parsed.image_type;
+    const strictStyleHints = parsed.styleHints ?? parsed.style_hints;
+    const strictEmotionCandidates = parsed.emotionCandidates ?? parsed.emotion_candidates;
+
+    if (strictMainEntity && strictSceneState && strictUserEmotion) {
+      const normalizedEmotion = normalizeEmotionToEnum({
+        userEmotion: strictUserEmotion,
+        mainEntity: strictMainEntity,
+        sceneState: strictSceneState,
+        evidence: typeof parsed.evidence === "string" ? parsed.evidence : undefined,
+      });
+
+      const candidates = Array.isArray(strictEmotionCandidates)
+        ? strictEmotionCandidates
             .map((c) => {
               const rawLabel = (c as { label?: unknown; emotion?: unknown }).label ?? (c as { emotion?: unknown }).emotion;
               const rawScore = (c as { score?: unknown; confidence?: unknown }).score ?? (c as { confidence?: unknown }).confidence;
@@ -420,32 +583,52 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             .slice(0, 3)
         : [];
 
-      analysis = {
-        imageType: normalizeImageType(parsed.imageType),
-        mainEntity: smartTrim(normalizeText(parsed.mainEntity), MAX_MAIN_ENTITY_LEN),
-        sceneState: smartTrim(normalizeText(parsed.sceneState), MAX_SCENE_STATE_LEN),
+      resolved = {
+        imageType: normalizeImageType(strictImageType),
+        mainEntity: smartTrim(strictMainEntity, MAX_MAIN_ENTITY_LEN),
+        sceneState: smartTrim(strictSceneState, MAX_SCENE_STATE_LEN),
         userEmotion: normalizedEmotion,
-        styleHints: Array.isArray(parsed.styleHints)
-          ? parsed.styleHints.map(String).slice(0, 3)
+        styleHints: Array.isArray(strictStyleHints)
+          ? strictStyleHints.map(String).slice(0, 3)
           : undefined,
         evidence: typeof parsed.evidence === "string" ? parsed.evidence.trim() : undefined,
         emotionCandidates: candidates.length ? candidates : undefined,
       };
-    } else if (typeof parsed.description === "string" && parsed.description.trim()) {
+      parsePath = "strict";
+    }
+
+    if (!resolved && typeof parsed.description === "string" && parsed.description.trim()) {
       /* youtu-vita 偶发只输出 { description }，与契约不一致时从长描述映射为感知结构 */
-      const d = parsed.description.trim();
-      const kw = pickEmotionFromKeywords(d) ?? "好奇";
-      analysis = {
-        imageType: normalizeImageType(parsed.imageType),
-        mainEntity: smartTrim(d, MAX_MAIN_ENTITY_LEN),
-        sceneState: smartTrim(d, MAX_SCENE_STATE_LEN),
-        userEmotion: kw,
-        styleHints: Array.isArray(parsed.styleHints)
-          ? parsed.styleHints.map(String).slice(0, 3)
-          : ["网络化夸张", "反差戏剧感", "梗图化表达"],
-        evidence: typeof parsed.evidence === "string" ? parsed.evidence.trim() : undefined,
-      };
-    } else {
+      resolved = mapAnalysisFromDescription({
+        description: parsed.description,
+        imageType: parsed.imageType,
+        styleHints: parsed.styleHints,
+        evidence: parsed.evidence,
+      });
+      parsePath = "description";
+    }
+
+    if (!resolved && typeof parsed.imageDescription === "string" && parsed.imageDescription.trim()) {
+      resolved = mapAnalysisFromDescription({
+        description: parsed.imageDescription,
+        imageType: parsed.imageType ?? parsed.image_type,
+        styleHints: parsed.styleHints ?? parsed.style_hints,
+        evidence: parsed.evidence,
+      });
+      parsePath = "description";
+    }
+
+    if (!resolved && typeof parsed.image_description === "string" && parsed.image_description.trim()) {
+      resolved = mapAnalysisFromDescription({
+        description: parsed.image_description,
+        imageType: parsed.imageType ?? parsed.image_type,
+        styleHints: parsed.styleHints ?? parsed.style_hints,
+        evidence: parsed.evidence,
+      });
+      parsePath = "description";
+    }
+
+    if (!resolved) {
       const descLike = (() => {
         if (typeof parsed.scene_description === "string" && parsed.scene_description.trim()) {
           return parsed.scene_description.trim();
@@ -469,28 +652,52 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
       if (descLike) {
         /* youtu-vita 偶发返回 scene_description / caption 等字段：按长描述兜底映射 */
-        const kw = pickEmotionFromKeywords(descLike) ?? "好奇";
-        analysis = {
-          imageType: normalizeImageType(parsed.imageType),
-          mainEntity: smartTrim(descLike, MAX_MAIN_ENTITY_LEN),
-          sceneState: smartTrim(descLike, MAX_SCENE_STATE_LEN),
-          userEmotion: kw,
-          styleHints: Array.isArray(parsed.styleHints)
-            ? parsed.styleHints.map(String).slice(0, 3)
-            : ["网络化夸张", "反差戏剧感", "梗图化表达"],
-          evidence: typeof parsed.evidence === "string" ? parsed.evidence.trim() : undefined,
-        };
-      } else {
-        // 最后兜底：避免直接 500，给出可继续流程的极简感知
-        analysis = {
-          mainEntity: "未知场景",
-          sceneState: "图像信息不足",
-          userEmotion: "迷茫",
-          evidence: "图像信息不足",
-          styleHints: ["抽象派", "极简主义", "超现实主义"],
-        };
+        resolved = mapAnalysisFromDescription({
+          description: descLike,
+          imageType: parsed.imageType,
+          styleHints: parsed.styleHints,
+          evidence: parsed.evidence,
+        });
+        parsePath = "scene";
       }
     }
+
+    if (!resolved) {
+      resolved = mapAnalysisFromElements({
+        elements: parsed.elements,
+        imageType: parsed.imageType,
+        styleHints: parsed.styleHints,
+      });
+      if (resolved) parsePath = "elements";
+    }
+
+    if (resolved) {
+      resolved = enforceVisionBoundaries(resolved);
+    }
+
+    if (!resolved || !isUsableAnalysis(resolved)) {
+      // 最后兜底：避免直接 500，给出可继续流程的极简感知
+      resolved = {
+        mainEntity: FALLBACK_MAIN_ENTITY,
+        sceneState: FALLBACK_SCENE_STATE,
+        userEmotion: "迷茫",
+        evidence: FALLBACK_SCENE_STATE,
+        styleHints: ["抽象派", "极简主义", "超现实主义"],
+      };
+      parsePath = "fallback";
+    }
+
+    analysis = resolved;
+    console.error(
+      `[vision][${requestId}] parse summary`,
+      JSON.stringify({
+        parsePath,
+        isUsable: isUsableAnalysis(analysis),
+        mainEntityLen: normalizeText(analysis.mainEntity).length,
+        sceneStateLen: normalizeText(analysis.sceneState).length,
+        userEmotion: normalizeText(analysis.userEmotion).slice(0, 12),
+      })
+    );
   } catch (err) {
     console.error(`[vision][${requestId}] JSON 解析失败`, err);
     return errorResponse("PARSE_ERROR", `AI 返回格式异常，解析失败（请求号：${requestId}）`, 500);

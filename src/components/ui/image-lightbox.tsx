@@ -9,15 +9,26 @@ type Props = {
   onClose: () => void;
 };
 
+const VIDEO_EXTS = [".mp4", ".webm", ".mov", ".ogg"];
+
+function isVideoSrc(src: string) {
+  try {
+    const pathname = new URL(src, "https://x").pathname.toLowerCase();
+    return VIDEO_EXTS.some((ext) => pathname.endsWith(ext));
+  } catch {
+    return false;
+  }
+}
+
 export function ImageLightbox({ src, alt = "", onClose }: Props) {
   const closeBtnRef = useRef<HTMLButtonElement | null>(null);
   const imageWrapRef = useRef<HTMLDivElement | null>(null);
+  const isVideo = isVideoSrc(src);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
-    // 使用捕获阶段，降低被页面其他 keydown 处理器拦截的概率
     window.addEventListener("keydown", onKeyDown, true);
     closeBtnRef.current?.focus();
     return () => window.removeEventListener("keydown", onKeyDown, true);
@@ -35,7 +46,7 @@ export function ImageLightbox({ src, alt = "", onClose }: Props) {
       className="fixed inset-0 z-[200] flex flex-col"
       role="dialog"
       aria-modal="true"
-      aria-label="查看大图"
+      aria-label={isVideo ? "查看 Live 图" : "查看大图"}
     >
       {/* 蒙层 */}
       <button
@@ -50,7 +61,9 @@ export function ImageLightbox({ src, alt = "", onClose }: Props) {
         className="relative z-10 flex items-center justify-between px-4 py-3 pointer-events-none"
         onClick={onClose}
       >
-        <span className="text-sm font-medium text-white/80 select-none">查看大图</span>
+        <span className="text-sm font-medium text-white/80 select-none">
+          {isVideo ? "查看 Live 图" : "查看大图"}
+        </span>
         <button
           ref={closeBtnRef}
           type="button"
@@ -69,20 +82,31 @@ export function ImageLightbox({ src, alt = "", onClose }: Props) {
         </button>
       </div>
 
-      {/* 图片区域 */}
+      {/* 内容区域 */}
       <div
         ref={imageWrapRef}
         className="relative z-10 flex-1 flex items-center justify-center px-4 pb-6 min-h-0"
         onClick={onClose}
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={src}
-          alt={alt}
-          className="max-h-full max-w-full object-contain rounded-xl shadow-2xl"
-          draggable={false}
-          onClick={(e) => e.stopPropagation()}
-        />
+        {isVideo ? (
+          <video
+            src={src}
+            controls
+            playsInline
+            autoPlay
+            className="max-h-full max-w-full rounded-xl shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+        ) : (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={src}
+            alt={alt}
+            className="max-h-full max-w-full object-contain rounded-xl shadow-2xl"
+            draggable={false}
+            onClick={(e) => e.stopPropagation()}
+          />
+        )}
       </div>
     </div>
   );

@@ -1,10 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { motionDurations, motionEase, motionDistances, motionStaggers } from "@/lib/motion";
 import type { VisionAnalysis } from "@/types/vision";
-import type { GuessOption, GuessResult } from "@/types/guess";
+import type { GuessOption, GuessOptionSignature, GuessResult } from "@/types/guess";
+import { emitGuessMetric } from "@/lib/guess-observability";
+
+const MAX_BATCH = 3;
 
 /* -------- Guess 阶段专属 loading -------- */
 const GUESS_COPY = [
@@ -18,7 +21,7 @@ const GUESS_COPY = [
 const GUESS_BAR_DELAYS  = ["0s", "0.2s", "0.1s", "0.25s", "0.05s"];
 const GUESS_BAR_HEIGHTS = ["60%", "100%", "75%", "90%", "50%"];
 
-function GuessLoader() {
+function GuessLoader({ copy }: { copy?: string }) {
   const [copyIdx, setCopyIdx] = useState(0);
 
   useEffect(() => {
@@ -34,7 +37,6 @@ function GuessLoader() {
       animate={{ opacity: 1 }}
       className="flex flex-col items-center gap-3 py-7"
     >
-      {/* 律动条 */}
       <div className="flex items-end gap-[3px] h-6" aria-hidden="true">
         {GUESS_BAR_DELAYS.map((delay, i) => (
           <span
@@ -55,18 +57,17 @@ function GuessLoader() {
         `}</style>
       </div>
 
-      {/* 轮换文案 */}
       <div className="h-4 overflow-hidden relative w-full max-w-[220px]">
         <AnimatePresence mode="wait">
           <motion.p
-            key={copyIdx}
+            key={copy ?? copyIdx}
             initial={{ opacity: 0, y: 5 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -5 }}
             transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
             className="text-xs text-zinc-400 dark:text-zinc-500 text-center absolute inset-x-0"
           >
-            {GUESS_COPY[copyIdx]}
+            {copy ?? GUESS_COPY[copyIdx]}
           </motion.p>
         </AnimatePresence>
       </div>
@@ -77,6 +78,7 @@ function GuessLoader() {
 export interface GuessRefineProps {
   analysis: VisionAnalysis;
   onGenerate: (option: GuessOption, mode: "image" | "video") => void;
+  isGenerating?: boolean;
 }
 
 /* 打字机 Hook */
@@ -114,6 +116,8 @@ function useTypewriter(text: string, speed = 22): string {
 function OptionButton({
   option, selected, onSelect,
 }: { option: GuessOption; selected: boolean; onSelect: () => void }) {
+  const [promptExpanded, setPromptExpanded] = useState(false);
+
   return (
     <motion.div
       variants={{
@@ -125,52 +129,86 @@ function OptionButton({
         },
       }}
     >
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         onClick={onSelect}
-        className="w-full text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 rounded-lg"
-      >
-        <div className={[
-          "rounded-lg border px-4 py-3 flex flex-col gap-1",
-          "transition-all duration-150",
+        onKeyDown={(e) => e.key === "Enter" && onSelect()}
+        className={[
+          "rounded-lg border px-4 py-3 flex flex-col gap-1.5",
+          "transition-all duration-150 cursor-pointer",
+          "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400",
           selected
             ? "border-blue-400 dark:border-blue-500 bg-blue-50/60 dark:bg-blue-900/15"
             : "border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[oklch(0.18_0.004_265)]",
           "hover:border-zinc-300 dark:hover:border-white/[0.14]",
-        ].join(" ")}>
-          <div className="flex items-center gap-2">
-            {/* 选中指示点 */}
-            <span className={[
-              "w-1.5 h-1.5 rounded-full flex-shrink-0 transition-colors duration-150",
-              selected ? "bg-blue-500" : "bg-zinc-200 dark:bg-white/20",
-            ].join(" ")} />
-            <span className={[
-              "text-sm font-medium transition-colors duration-150",
-              selected
-                ? "text-blue-600 dark:text-blue-400"
-                : "text-zinc-800 dark:text-zinc-200",
-            ].join(" ")}>
-              {option.title}
-            </span>
-          </div>
-          <p className="text-xs text-zinc-400 dark:text-zinc-500 leading-relaxed line-clamp-2 pl-3.5">
-            {option.prompt.slice(0, 80)}{option.prompt.length > 80 ? "…" : ""}
-          </p>
+        ].join(" ")}
+      >
+        <div className="flex items-center gap-2">
+          <span className={[
+            "w-1.5 h-1.5 rounded-full flex-shrink-0 transition-colors duration-150",
+            selected ? "bg-blue-500" : "bg-zinc-200 dark:bg-white/20",
+          ].join(" ")} />
+          <span className={[
+            "text-sm font-medium transition-colors duration-150",
+            selected
+              ? "text-blue-600 dark:text-blue-400"
+              : "text-zinc-800 dark:text-zinc-200",
+          ].join(" ")}>
+            {option.title}
+          </span>
         </div>
-      </button>
+
+        {option.description ? (
+          <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed pl-3.5">
+            {option.description}
+          </p>
+        ) : null}
+
+        <div
+          className="pl-3.5"
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            onClick={() => setPromptExpanded((v) => !v)}
+            className="text-[11px] text-zinc-400 dark:text-zinc-600 hover:text-zinc-600 dark:hover:text-zinc-400 transition-colors duration-150 underline-offset-2 hover:underline"
+          >
+            {promptExpanded ? "收起提示词" : "查看提示词原文"}
+          </button>
+          {promptExpanded && (
+            <p className="mt-1.5 text-[11px] font-mono text-zinc-400 dark:text-zinc-600 leading-relaxed break-all whitespace-pre-wrap">
+              {option.prompt}
+            </p>
+          )}
+        </div>
+      </div>
     </motion.div>
   );
 }
 
 /* 主组件 */
-export function GuessRefine({ analysis, onGenerate }: GuessRefineProps) {
+export function GuessRefine({ analysis, onGenerate, isGenerating = false }: GuessRefineProps) {
   const [status, setStatus] = useState<"loading" | "success" | "error">("loading");
   const [result, setResult] = useState<GuessResult | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [generateMode, setGenerateMode] = useState<"image" | "video">("image");
   const abortRef = useRef<AbortController | null>(null);
+  const ctaRef = useRef<HTMLDivElement | null>(null);
   const typedReply = useTypewriter(result?.reply ?? "", 22);
+
+  // 换一批状态
+  const [batchIndex, setBatchIndex] = useState(1);
+  const [historySignatures, setHistorySignatures] = useState<GuessOptionSignature[]>([]);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // 我自己说一句状态
+  const [hintOpen, setHintOpen] = useState(false);
+  const [userHint, setUserHint] = useState("");
+  const [isHintSubmitting, setIsHintSubmitting] = useState(false);
+  const hintInputRef = useRef<HTMLInputElement | null>(null);
 
   const analysisFetchKey = useMemo(
     () => JSON.stringify({
@@ -182,6 +220,39 @@ export function GuessRefine({ analysis, onGenerate }: GuessRefineProps) {
     [analysis.mainEntity, analysis.sceneState, analysis.userEmotion, analysis.styleHints]
   );
 
+  /* ---- 核心 fetch 函数 ---- */
+  const fetchGuess = useCallback(async (
+    signal: AbortSignal,
+    opts: {
+      exclude?: GuessOptionSignature[];
+      batchIndex?: number;
+      userHint?: string;
+      mode?: "recommend" | "direct";
+    } = {}
+  ): Promise<{ result: GuessResult; meta?: { batchIndex: number; dedupLevel: string } }> => {
+    const res = await fetch("/api/guess", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        analysis,
+        ...(opts.exclude?.length ? { exclude: opts.exclude } : {}),
+        ...(opts.batchIndex ? { batchIndex: opts.batchIndex } : {}),
+        ...(opts.userHint ? { userHint: opts.userHint } : {}),
+        ...(opts.mode ? { mode: opts.mode } : {}),
+      }),
+      signal,
+    });
+    const data = (await res.json()) as {
+      success: boolean;
+      data?: GuessResult;
+      meta?: { batchIndex: number; dedupLevel: string };
+      error?: string;
+    };
+    if (!data.success || !data.data) throw new Error(data.error ?? "决策引擎返回异常");
+    return { result: data.data, meta: data.meta };
+  }, [analysis]);
+
+  /* ---- 初始加载 ---- */
   useEffect(() => {
     abortRef.current?.abort();
     const ac = new AbortController();
@@ -192,18 +263,15 @@ export function GuessRefine({ analysis, onGenerate }: GuessRefineProps) {
     setResult(null);
     setSelectedId(null);
     setErrorMsg("");
+    setBatchIndex(1);
+    setHistorySignatures([]);
+    setHintOpen(false);
+    setUserHint("");
     /* eslint-enable react-hooks/set-state-in-effect */
 
-    fetch("/api/guess", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ analysis }),
-      signal: ac.signal,
-    })
-      .then((r) => r.json())
-      .then((data: { success: boolean; data?: GuessResult; error?: string }) => {
-        if (!data.success || !data.data) throw new Error(data.error ?? "决策引擎返回异常");
-        setResult(data.data);
+    fetchGuess(ac.signal)
+      .then(({ result: r }) => {
+        setResult(r);
         setStatus("success");
       })
       .catch((err: unknown) => {
@@ -216,7 +284,108 @@ export function GuessRefine({ analysis, onGenerate }: GuessRefineProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [analysisFetchKey]);
 
+  /* ---- 换一批 ---- */
+  const handleRefresh = useCallback(async () => {
+    if (isRefreshing || !result) return;
+    emitGuessMetric("guess_batch_refresh_click", { batchIndex });
+    setIsRefreshing(true);
+    setSelectedId(null);
+
+    const newSignatures: GuessOptionSignature[] = [
+      ...historySignatures,
+      ...result.options.map((o) => ({ title: o.title, prompt: o.prompt, description: o.description })),
+    ];
+    const nextBatch = batchIndex + 1;
+
+    const ac = new AbortController();
+    abortRef.current?.abort();
+    abortRef.current = ac;
+
+    try {
+      const { result: newResult, meta } = await fetchGuess(ac.signal, {
+        exclude: newSignatures,
+        batchIndex: nextBatch,
+      });
+      emitGuessMetric("guess_batch_refresh_success", {
+        batchIndex: nextBatch,
+        dedupLevel: meta?.dedupLevel,
+      });
+      setHistorySignatures(newSignatures);
+      setBatchIndex(nextBatch);
+      setResult(newResult);
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === "AbortError") return;
+      // 换批失败不崩溃，保留当前结果
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [batchIndex, fetchGuess, historySignatures, isRefreshing, result]);
+
+  /* ---- 我自己说一句：影响推荐 ---- */
+  const handleHintRecommend = useCallback(async () => {
+    const hint = userHint.trim();
+    if (!hint || isHintSubmitting) return;
+    emitGuessMetric("guess_custom_hint_submit", { batchIndex, hasUserHint: true });
+    setIsHintSubmitting(true);
+    setSelectedId(null);
+
+    const ac = new AbortController();
+    abortRef.current?.abort();
+    abortRef.current = ac;
+
+    try {
+      const { result: newResult } = await fetchGuess(ac.signal, {
+        exclude: historySignatures,
+        batchIndex: batchIndex + 1,
+        userHint: hint,
+        mode: "recommend",
+      });
+      setHistorySignatures((prev) => [
+        ...prev,
+        ...(result?.options ?? []).map((o) => ({ title: o.title, prompt: o.prompt, description: o.description })),
+      ]);
+      setBatchIndex((v) => v + 1);
+      setResult(newResult);
+      setHintOpen(false);
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === "AbortError") return;
+    } finally {
+      setIsHintSubmitting(false);
+    }
+  }, [batchIndex, fetchGuess, historySignatures, isHintSubmitting, result, userHint]);
+
+  /* ---- 我自己说一句：直接生成 ---- */
+  const handleHintDirect = useCallback(async () => {
+    const hint = userHint.trim();
+    if (!hint || isHintSubmitting || isGenerating) return;
+    emitGuessMetric("guess_custom_direct_generate", { batchIndex, hasUserHint: true });
+    setIsHintSubmitting(true);
+
+    const ac = new AbortController();
+    abortRef.current?.abort();
+    abortRef.current = ac;
+
+    try {
+      const { result: directResult } = await fetchGuess(ac.signal, {
+        userHint: hint,
+        mode: "direct",
+      });
+      const singleOption = directResult.options[0];
+      if (singleOption) {
+        onGenerate(singleOption, generateMode);
+        setHintOpen(false);
+      }
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === "AbortError") return;
+    } finally {
+      setIsHintSubmitting(false);
+    }
+  }, [fetchGuess, generateMode, isGenerating, isHintSubmitting, onGenerate, userHint]);
+
   const selectedOption = result?.options.find((o) => o.id === selectedId) ?? null;
+  const hintValid = userHint.trim().length >= 2 && userHint.trim().length <= 40;
+  const showRefresh = batchIndex < MAX_BATCH && !isRefreshing;
+  const showHintSuggestion = batchIndex >= MAX_BATCH && !hintOpen;
 
   /* Loading */
   if (status === "loading") {
@@ -232,18 +401,23 @@ export function GuessRefine({ analysis, onGenerate }: GuessRefineProps) {
     );
   }
 
+  /* 换批加载中 */
+  if (isRefreshing) {
+    return <GuessLoader copy="正在换一批风格…" />;
+  }
+
   /* Success */
   return (
     <AnimatePresence>
       <motion.div
-        key="guess-refine"
+        key={`guess-refine-batch-${batchIndex}`}
         initial={{ opacity: 0, y: motionDistances.y }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: motionDurations.long, ease: motionEase.out }}
         className="flex flex-col gap-4"
       >
 
-        {/* AI 回复气泡 — 白底细边，无毛玻璃 */}
+        {/* AI 回复气泡 */}
         <motion.div
           initial={{ opacity: 0, y: motionDistances.ySmall }}
           animate={{ opacity: 1, y: 0 }}
@@ -255,9 +429,16 @@ export function GuessRefine({ analysis, onGenerate }: GuessRefineProps) {
             "shadow-[0_1px_2px_oklch(0_0_0/0.04)]",
           ].join(" ")}
         >
-          <p className="text-[11px] font-medium text-zinc-400 dark:text-zinc-500 mb-2 tracking-wider uppercase">
-            AI 分析
-          </p>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-[11px] font-medium text-zinc-400 dark:text-zinc-500 tracking-wider uppercase">
+              AI 分析
+            </p>
+            {batchIndex > 1 && (
+              <span className="text-[10px] text-zinc-400 dark:text-zinc-600 bg-zinc-100 dark:bg-white/[0.06] px-1.5 py-0.5 rounded-full">
+                第 {batchIndex} 批
+              </span>
+            )}
+          </div>
           <p className="text-sm leading-relaxed text-zinc-700 dark:text-zinc-300 min-h-[1.4rem]">
             {typedReply}
             {typedReply.length < (result?.reply.length ?? 0) && (
@@ -288,15 +469,159 @@ export function GuessRefine({ analysis, onGenerate }: GuessRefineProps) {
               key={opt.id}
               option={opt}
               selected={selectedId === opt.id}
-              onSelect={() => setSelectedId(opt.id)}
+              onSelect={() => {
+                setSelectedId(opt.id);
+                emitGuessMetric("guess_option_selected", { batchIndex, optionTitle: opt.title });
+                requestAnimationFrame(() => {
+                  ctaRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                });
+              }}
             />
           ))}
         </motion.div>
+
+        {/* 换一批 / 提示引导 */}
+        <div className="flex items-center gap-3 flex-wrap">
+          {showRefresh && (
+            <button
+              type="button"
+              onClick={handleRefresh}
+              disabled={isGenerating}
+              className="text-xs text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 transition-colors duration-150 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              没感觉？换一批
+            </button>
+          )}
+          {showHintSuggestion && (
+            <p className="text-xs text-zinc-400 dark:text-zinc-500">
+              三批都不合适？
+              <button
+                type="button"
+                onClick={() => {
+                  emitGuessMetric("guess_custom_hint_open", { batchIndex });
+                  setHintOpen(true);
+                  requestAnimationFrame(() => hintInputRef.current?.focus());
+                }}
+                className="ml-1 text-[color:var(--apple-blue)] hover:underline"
+              >
+                告诉 AI 你的想法
+              </button>
+            </p>
+          )}
+          {!showRefresh && !showHintSuggestion && !hintOpen && (
+            <button
+              type="button"
+              onClick={() => {
+                emitGuessMetric("guess_custom_hint_open", { batchIndex });
+                setHintOpen(true);
+                requestAnimationFrame(() => hintInputRef.current?.focus());
+              }}
+              className="text-xs text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors duration-150"
+            >
+              说说你的偏好
+            </button>
+          )}
+        </div>
+
+        {/* 我自己说一句 输入区 */}
+        <AnimatePresence>
+          {hintOpen && (
+            <motion.div
+              key="hint-area"
+              initial={{ opacity: 0, y: -6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+              className={[
+                "rounded-lg border border-zinc-200 dark:border-white/[0.08]",
+                "bg-white dark:bg-[oklch(0.18_0.004_265)]",
+                "px-4 py-3.5 flex flex-col gap-3",
+              ].join(" ")}
+            >
+              <div className="flex items-center justify-between">
+                <p className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
+                  说说你的偏好
+                </p>
+                <button
+                  type="button"
+                  onClick={() => { setHintOpen(false); setUserHint(""); }}
+                  className="text-[11px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors"
+                >
+                  取消
+                </button>
+              </div>
+
+              <div className="relative">
+                <input
+                  ref={hintInputRef}
+                  type="text"
+                  value={userHint}
+                  onChange={(e) => setUserHint(e.target.value.slice(0, 40))}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && hintValid && !isHintSubmitting) {
+                      e.preventDefault();
+                      handleHintRecommend();
+                    }
+                  }}
+                  placeholder="比如：复古但别太暗、帮我走治愈系一点"
+                  className={[
+                    "w-full rounded-lg border px-3 py-2 text-sm",
+                    "border-zinc-200/80 dark:border-white/[0.10]",
+                    "bg-white dark:bg-white/[0.02]",
+                    "text-zinc-800 dark:text-zinc-100",
+                    "placeholder:text-zinc-400 dark:placeholder:text-zinc-600",
+                    "outline-none focus:ring-2 focus:ring-[color:var(--apple-blue)]",
+                    "transition-shadow duration-150",
+                  ].join(" ")}
+                />
+                {userHint.length > 0 && (
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-zinc-400 tabular-nums pointer-events-none">
+                    {userHint.trim().length}/40
+                  </span>
+                )}
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={handleHintRecommend}
+                  disabled={!hintValid || isHintSubmitting}
+                  className={[
+                    "flex-1 py-2 rounded-lg text-xs font-medium",
+                    "border border-zinc-200/80 dark:border-white/[0.10]",
+                    "bg-white dark:bg-white/[0.02]",
+                    "text-zinc-700 dark:text-zinc-200",
+                    "hover:bg-zinc-50 dark:hover:bg-white/[0.05]",
+                    "transition-colors duration-150",
+                    "disabled:opacity-50 disabled:cursor-not-allowed",
+                  ].join(" ")}
+                >
+                  {isHintSubmitting ? "重新推荐中…" : "基于此重新推荐"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleHintDirect}
+                  disabled={!hintValid || isHintSubmitting || isGenerating}
+                  className={[
+                    "flex-1 py-2 rounded-lg text-xs font-semibold text-white",
+                    "bg-blue-500 hover:bg-blue-600 active:bg-blue-700",
+                    "dark:bg-blue-500 dark:hover:bg-blue-400",
+                    "transition-colors duration-150",
+                    "disabled:opacity-50 disabled:cursor-not-allowed",
+                  ].join(" ")}
+                >
+                  {isHintSubmitting ? "生成中…" : "直接按这句话生成"}
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* 主 CTA */}
         <AnimatePresence>
           {selectedOption && (
             <motion.div
+              ref={ctaRef}
               key="cta"
               initial={{ opacity: 0, y: motionDistances.y }}
               animate={{ opacity: 1, y: 0 }}
@@ -304,43 +629,70 @@ export function GuessRefine({ analysis, onGenerate }: GuessRefineProps) {
               transition={{ duration: motionDurations.medium, ease: motionEase.out }}
               className="flex flex-col gap-2.5 pt-1"
             >
-              {/* 生图 / 生视频 切换 */}
+              {/* 生图 / 生 Live 图 切换 */}
               <div className="flex gap-1.5 p-1 rounded-lg bg-zinc-100 dark:bg-white/[0.06]">
                 {(["image", "video"] as const).map((m) => (
                   <button
                     key={m}
                     type="button"
+                    disabled={isGenerating}
                     onClick={() => setGenerateMode(m)}
                     className={[
                       "flex-1 py-1.5 rounded-md text-xs font-medium transition-all duration-150",
                       generateMode === m
                         ? "bg-white dark:bg-[oklch(0.22_0.004_265)] text-zinc-900 dark:text-zinc-100 shadow-sm"
                         : "text-zinc-500 dark:text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-400",
+                      isGenerating ? "opacity-50 cursor-not-allowed" : "",
                     ].join(" ")}
                   >
-                    {m === "image" ? "生成图片" : "生成视频"}
+                    {m === "image" ? "生成图片" : "生成 Live 图"}
                   </button>
                 ))}
               </div>
 
-              {/* 主按钮 — Apple 蓝，无渐变无发光 */}
+              {/* 主按钮 */}
               <motion.button
                 type="button"
-                whileTap={{ scale: 0.98 }}
-                onClick={() => onGenerate(selectedOption, generateMode)}
+                whileTap={isGenerating ? undefined : { scale: 0.98 }}
+                disabled={isGenerating}
+                onClick={() => !isGenerating && onGenerate(selectedOption, generateMode)}
                 className={[
                   "w-full py-3 rounded-lg",
                   "text-sm font-semibold text-white",
-                  "bg-blue-500 hover:bg-blue-600 active:bg-blue-700",
-                  "dark:bg-blue-500 dark:hover:bg-blue-400",
-                  "transition-colors duration-150",
+                  "transition-colors duration-200",
                   "shadow-[0_1px_2px_oklch(0_0_0/0.12)]",
+                  isGenerating
+                    ? "bg-zinc-400 dark:bg-zinc-600 cursor-not-allowed"
+                    : "bg-blue-500 hover:bg-blue-600 active:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400",
                 ].join(" ")}
               >
-                生成专属 Drama
-                <span className="ml-1.5 text-blue-200 font-normal text-xs">
-                  · {selectedOption.title}
-                </span>
+                {isGenerating ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="flex gap-[3px] items-center" aria-hidden="true">
+                      {[0, 1, 2].map((i) => (
+                        <span
+                          key={i}
+                          className="w-[4px] h-[4px] rounded-full bg-white/70"
+                          style={{ animation: `ctaDot 1s ${i * 0.18}s ease-in-out infinite alternate` }}
+                        />
+                      ))}
+                      <style>{`
+                        @keyframes ctaDot {
+                          0%   { opacity: 0.3; transform: scaleY(0.6); }
+                          100% { opacity: 1;   transform: scaleY(1.2); }
+                        }
+                      `}</style>
+                    </span>
+                    正在 Drama 中…
+                  </span>
+                ) : (
+                  <>
+                    生成专属 Drama
+                    <span className="ml-1.5 text-blue-200 font-normal text-xs">
+                      · {selectedOption.title}
+                    </span>
+                  </>
+                )}
               </motion.button>
             </motion.div>
           )}

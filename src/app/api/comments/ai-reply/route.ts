@@ -67,10 +67,22 @@ export async function POST(req: NextRequest) {
     const npcs = first
       ? [first, pickSecondNpc(parentId, first.npc_id)]
       : pickNpcs(parentId);
-    const system = `你是「小题大Drama」的互动回复引擎。现在需要你以指定角色身份，回复用户的一条评论。要求：更像真实人类表达、不浮夸、不连续感叹号。每条 12-45 字，中文口语化。\n\n你必须输出纯 JSON：{"replies":[{"npc_id":"...","display_name":"...","content":"..."}]}\n只输出 JSON。`;
+
+    // 获取帖子上下文，给 AI 回复提供完整语境
+    const { data: post } = await supabase
+      .from("posts")
+      .select("id, style, main_entity, scene_state, user_emotion")
+      .eq("id", postId)
+      .maybeSingle();
+
+    const system = `你是「小题大Drama」的互动回复引擎。现在需要你以指定角色身份，回复用户的一条评论。要求：更像真实人类表达、不浮夸、不连续多个感叹号。每条 12-45 字，中文口语化。允许并鼓励适量使用 emoji 和情绪符号（如 😂🥹✨😭 等）及“～”“…”“！”“？”等情绪标点，每条最多 1-2 个，与角色性格匹配，不要堆砌。你必须紧扣作品的主实体/场景/情绪/风格回复，像真的看过图一样，不要脱离原帖语境。\n\n你必须输出纯 JSON：{"replies":[{"npc_id":"...","display_name":"...","content":"..."}]}\n只输出 JSON。`;
     const user = [
       "这是一条用户评论，请给出 2 条 AI 角色回复（不同角色）：",
-      `postId: ${postId}`,
+      "该评论所属作品信息（必须紧扣这些内容回复）：",
+      `主实体: ${String(post?.main_entity ?? "").trim()}`,
+      `场景: ${String(post?.scene_state ?? "").trim()}`,
+      `情绪: ${String(post?.user_emotion ?? "").trim()}`,
+      `风格: ${String(post?.style ?? "").trim()}`,
       `comment: ${String(parent.content ?? "").trim()}`,
       "角色与风格：",
       ...npcs.map((x) => `- ${x.displayName}（npc_id: ${x.npc_id}）：${x.stylePrompt}`),

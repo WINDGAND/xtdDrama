@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getCachedMePosts, type MePostRow } from "@/lib/cached-feeds";
+import { DeletePostButton } from "@/components/ui/delete-post-button";
 
 function formatTime(input: string) {
   const d = new Date(input);
@@ -61,7 +62,7 @@ export async function MePostsSection({ userId }: { userId: string }) {
                 </span>
               </div>
             </div>
-            <div className="flex-shrink-0 pt-0.5">
+            <div className="flex-shrink-0 pt-0.5 flex items-center gap-1">
               <Link
                 href={`/posts/${p.id}`}
                 prefetch
@@ -75,6 +76,7 @@ export async function MePostsSection({ userId }: { userId: string }) {
               >
                 查看详情
               </Link>
+              <DeletePostButton postId={p.id} />
             </div>
           </div>
         </div>

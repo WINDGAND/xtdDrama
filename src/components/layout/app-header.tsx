@@ -10,6 +10,7 @@ import { useAuth } from "@/components/providers/auth-provider";
 import { Toast } from "@/components/ui/toast";
 import { consumeFlashToast } from "@/lib/flash-toast";
 import { requestLoginDirect } from "@/lib/request-login";
+import { DRAMA_WORD_GRADIENT_CLASS } from "@/lib/drama-word-style";
 
 const NAV_LINKS = [
   { label: "广场", href: "/plaza" },
@@ -18,13 +19,6 @@ const NAV_LINKS = [
   { label: "设置", href: "/settings" },
   { label: "常见问题", href: "/faq" },
 ];
-
-const dramaWordCls = [
-  "bg-gradient-to-r from-blue-600 via-violet-500 to-fuchsia-500",
-  "text-transparent bg-clip-text",
-  // 极轻阴影提升可读性（避免“霓虹感”）
-  "drop-shadow-[0_1px_0_rgba(0,0,0,0.08)] dark:drop-shadow-[0_1px_0_rgba(0,0,0,0.32)]",
-].join(" ");
 
 export function AppHeader() {
   const { theme, setTheme } = useTheme();
@@ -113,7 +107,7 @@ export function AppHeader() {
               <span className="text-[15px] font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
                 小题大
               </span>
-              <span className={["text-[15px] font-semibold tracking-tight", dramaWordCls].join(" ")}>
+              <span className={["text-[15px] font-semibold tracking-tight", DRAMA_WORD_GRADIENT_CLASS].join(" ")}>
                 Drama
               </span>
             </Link>

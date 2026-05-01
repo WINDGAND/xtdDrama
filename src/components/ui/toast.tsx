@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 
 export type ToastTone = "success" | "error" | "info";
 
@@ -19,15 +20,21 @@ export function Toast({
   durationMs?: number;
   dismissOnClick?: boolean;
 }) {
+  const [mounted, setMounted] = useState(false);
+
   const computedDuration =
     durationMs ??
     (tone === "error" ? 3800 : 2600);
 
   useEffect(() => {
-    if (!title) return;
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!title || !mounted) return;
     const t = window.setTimeout(onClear, computedDuration);
     return () => window.clearTimeout(t);
-  }, [computedDuration, onClear, title]);
+  }, [computedDuration, mounted, onClear, title]);
 
   if (!title) return null;
 
@@ -38,10 +45,10 @@ export function Toast({
         ? "bg-rose-400/55 dark:bg-rose-300/40"
         : "bg-zinc-300/70 dark:bg-white/[0.12]";
 
-  return (
+  const node = (
     <div
       className={[
-        "fixed right-4 z-[60]",
+        "fixed right-4 z-[100]",
         // 顶栏高度：mobile≈56px，desktop≈64px；Toast 从顶栏下方弹出
         "top-[calc(env(safe-area-inset-top)+64px)]",
         "sm:top-[calc(env(safe-area-inset-top)+72px)]",
@@ -61,7 +68,7 @@ export function Toast({
           "text-zinc-900 dark:text-zinc-50",
           "shadow-[0_10px_30px_oklch(0_0_0/0.16)] dark:shadow-[0_10px_30px_oklch(0_0_0/0.35)]",
           "max-w-[min(420px,calc(100vw-24px))]",
-        "animate-toast-in",
+          "animate-toast-in",
           dismissOnClick ? "cursor-pointer" : "",
         ].join(" ")}
       >
@@ -82,5 +89,8 @@ export function Toast({
       </div>
     </div>
   );
-}
 
+  if (!mounted || typeof document === "undefined") return null;
+
+  return createPortal(node, document.body);
+}

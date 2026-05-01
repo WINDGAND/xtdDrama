@@ -55,12 +55,37 @@ function Avatar({ name, avatarUrl }: { name: string; avatarUrl?: string | null }
   );
 }
 
+/** 把感知层数据拼成一句可读的"生成说明" */
+function buildDramaCopy(post: PlazaPostRow): string {
+  const entity = post.main_entity?.trim() || "日常一瞬间";
+  const emotion = post.user_emotion?.trim();
+  const style = post.style?.trim();
+  const scene = post.scene_state?.trim();
+
+  const parts: string[] = [];
+
+  if (entity) parts.push(entity);
+  if (scene && scene !== entity) {
+    const sceneShort = scene.length > 18 ? scene.slice(0, 18) + "…" : scene;
+    parts.push(sceneShort);
+  }
+
+  let suffix = "";
+  if (emotion && style) {
+    suffix = `${emotion}，${style}`;
+  } else if (emotion) {
+    suffix = emotion;
+  } else if (style) {
+    suffix = style;
+  }
+
+  const body = parts.join("·");
+  return suffix ? `${body}。${suffix}。` : `${body}。`;
+}
+
 function MomentsCard({ post, isFirst }: { post: PlazaPostRow; isFirst: boolean }) {
   const displayName = post.author_display_name?.trim() || "未命名";
-  const entity = post.main_entity?.trim() || "一个瞬间";
-  const emotion = post.user_emotion?.trim() || "有点复杂";
-  const style = post.style?.trim() || "某种风格";
-  const text = `${entity}。${emotion}，${style}。`;
+  const text = buildDramaCopy(post);
   const timeText = formatTime(post.created_at);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const openLightbox = useCallback(() => setLightboxSrc(post.result_url), [post.result_url]);
@@ -91,6 +116,16 @@ function MomentsCard({ post, isFirst }: { post: PlazaPostRow; isFirst: boolean }
           <div className="mt-1.5 text-sm text-zinc-800 dark:text-zinc-200 leading-relaxed">
             {text}
           </div>
+          {post.style && (
+            <div className="mt-1 flex items-center gap-1.5">
+              <span className="inline-flex items-center gap-1 text-[11px] font-mono text-zinc-500 dark:text-zinc-500 border border-zinc-200/70 dark:border-white/[0.08] rounded px-1.5 py-0.5">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+                </svg>
+                {post.style}
+              </span>
+            </div>
+          )}
 
           <div className="mt-3">
             {post.mode === "image" ? (

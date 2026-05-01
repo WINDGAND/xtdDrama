@@ -28,7 +28,11 @@ export type LikeRow = {
   display_name: string | null;
 };
 
-const STAGED_SCHEDULE_MS = [800, 4200, 9000, 15000, 23000] as const;
+// 基础时间轴加入随机抖动（±300ms），让点赞显现更像真人
+const BASE_LIKE_SCHEDULE_MS = [800, 4200, 9000, 15000, 23000] as const;
+const STAGED_SCHEDULE_MS = BASE_LIKE_SCHEDULE_MS.map((t) =>
+  t + (Math.floor(Math.random() * 600) - 300)
+) as unknown as typeof BASE_LIKE_SCHEDULE_MS;
 const profileAvatarCache = new Map<string, string>();
 const profileAvatarRequests = new Map<string, Promise<string>>();
 

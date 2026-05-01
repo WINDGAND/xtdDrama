@@ -157,14 +157,16 @@ function OptionRow({
         ].join(" ")} />
 
         <div className="min-w-0 flex-1 flex flex-col gap-1">
-          <span className={[
-            "text-sm font-medium transition-colors duration-150",
-            selected
-              ? "text-blue-600 dark:text-blue-400"
-              : "text-zinc-800 dark:text-zinc-200",
-          ].join(" ")}>
-            {option.title}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className={[
+              "text-sm font-medium transition-colors duration-150",
+              selected
+                ? "text-blue-600 dark:text-blue-400"
+                : "text-zinc-800 dark:text-zinc-200",
+            ].join(" ")}>
+              {option.title}
+            </span>
+          </div>
 
           {option.description ? (
             <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">

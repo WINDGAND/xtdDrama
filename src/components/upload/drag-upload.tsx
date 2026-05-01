@@ -17,13 +17,17 @@ interface DragUploadProps {
   maxBytes?: number;
 }
 
-const ALLOWED_TYPES = ["image/jpeg", "image/png"];
-const ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png"];
-const DEFAULT_MAX_BYTES = 5 * 1024 * 1024;
+const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"];
+const DEFAULT_MAX_BYTES = 10 * 1024 * 1024; // 放宽到 10MB，交给 resize 处理
+/** 上传到 Vision / Supabase 时的目标最大边长（px），保持主体清晰又降低 payload */
+const RESIZE_MAX_PX = 1280;
+/** 上传前目标 base64 size 约束（~2MB，超出则再次降质） */
+const TARGET_BASE64_CHARS = 2.5 * 1024 * 1024;
 
 function validateFile(file: File, maxBytes: number): string | null {
   if (!ALLOWED_TYPES.includes(file.type)) {
-    return `仅支持 JPG / PNG 格式（当前：${file.type || "未知"}）`;
+    return `仅支持 JPG / PNG / WebP 格式（当前：${file.type || "未知"}）`;
   }
   if (file.size > maxBytes) {
     const mb = (file.size / 1024 / 1024).toFixed(1);
@@ -38,6 +42,43 @@ function readAsBase64(file: File): Promise<string> {
     reader.onload = () => resolve(reader.result as string);
     reader.onerror = () => reject(new Error("文件读取失败"));
     reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * 自动缩放图片到 RESIZE_MAX_PX 以内，并以 JPEG 输出。
+ * 小图直接原样返回（不放大），大图等比缩小。
+ * 降低 payload 体积，加快 Vision API 响应速度，减少上传失败率。
+ */
+async function resizeToBase64(raw: string): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const w = img.naturalWidth;
+      const h = img.naturalHeight;
+      const maxPx = RESIZE_MAX_PX;
+      let tw = w;
+      let th = h;
+      if (w > maxPx || h > maxPx) {
+        const ratio = Math.min(maxPx / w, maxPx / h);
+        tw = Math.round(w * ratio);
+        th = Math.round(h * ratio);
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = tw;
+      canvas.height = th;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) { resolve(raw); return; }
+      ctx.drawImage(img, 0, 0, tw, th);
+      // 先尝试 0.88 质量，超出目标再降到 0.72
+      let out = canvas.toDataURL("image/jpeg", 0.88);
+      if (out.length > TARGET_BASE64_CHARS) {
+        out = canvas.toDataURL("image/jpeg", 0.72);
+      }
+      resolve(out);
+    };
+    img.onerror = () => resolve(raw);
+    img.src = raw;
   });
 }
 
@@ -78,11 +119,14 @@ export function DragUpload({
         setPreviewUrl(objectUrl);
         setState("preview");
 
-        const base64 = await readAsBase64(file);
+        // 先读原始 base64（用于预览），再 resize（用于上传/分析）
+        const rawBase64 = await readAsBase64(file);
+        setSensingText("正在优化图片大小…");
+        const base64 = await resizeToBase64(rawBase64);
+        // 预览用 resize 后的版本（节省内存）；原始 URL 已经 setPreviewUrl
         onUploadSuccess?.(base64);
 
         setState("sensing");
-
         setSensingText("正在上传并分析...");
 
         const uploadTask = (async () => {

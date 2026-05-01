@@ -20,7 +20,11 @@ type CommentRow = {
 
 type Node = CommentRow & { children: Node[] };
 
-const STAGED_SCHEDULE_MS = [800, 4200, 9000, 15000, 23000] as const;
+// 基础时间轴加入随机抖动（±300ms），让显现更像真人
+const BASE_SCHEDULE_MS = [800, 4200, 9000, 15000, 23000] as const;
+const STAGED_SCHEDULE_MS = BASE_SCHEDULE_MS.map((t) =>
+  t + (Math.floor(Math.random() * 600) - 300)
+) as unknown as typeof BASE_SCHEDULE_MS;
 const commentGenerationRequests = new Map<string, Promise<void>>();
 
 function readStagedAt(postId: string): number | null {
@@ -265,7 +269,13 @@ export function CommentsPanel({
         return;
       }
       setDraft("");
-      setToast({ title: "已发送", tone: "success" });
+      setComposerOpen(false);
+      setToast({
+        title: "发送成功",
+        description: "你的评论已发布",
+        tone: "success",
+        durationMs: 3400,
+      });
       if (data?.id) {
         fetch("/api/comments/ai-reply", {
           method: "POST",
@@ -302,7 +312,12 @@ export function CommentsPanel({
       }
       setReplyDraft("");
       setReplyTo(null);
-      setToast({ title: "已回复", tone: "success" });
+      setToast({
+        title: "回复成功",
+        description: "你的回复已发布",
+        tone: "success",
+        durationMs: 3400,
+      });
       if (data?.id) {
         fetch("/api/comments/ai-reply", {
           method: "POST",
@@ -410,6 +425,11 @@ export function CommentsPanel({
               <textarea
                 value={replyDraft}
                 onChange={(e) => setReplyDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter" || e.shiftKey) return;
+                  e.preventDefault();
+                  if (!busy && replyDraft.trim()) void submitReply();
+                }}
                 className="w-full min-h-[72px] rounded-lg border border-zinc-200/80 dark:border-white/[0.10] bg-white dark:bg-white/[0.02] px-3 py-2 text-sm text-zinc-800 dark:text-zinc-100 outline-none focus:ring-2 focus:ring-[color:var(--apple-blue)]"
                 placeholder="写下你的回复…"
               />
@@ -479,6 +499,11 @@ export function CommentsPanel({
             ref={composerRef}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter" || e.shiftKey) return;
+              e.preventDefault();
+              if (!busy && draft.trim()) void submit();
+            }}
             className="w-full min-h-[84px] rounded-lg border border-zinc-200/80 dark:border-white/[0.10] bg-white dark:bg-white/[0.02] px-3 py-2 text-sm text-zinc-800 dark:text-zinc-100 outline-none focus:ring-2 focus:ring-[color:var(--apple-blue)]"
             placeholder="写下你的评论…"
           />

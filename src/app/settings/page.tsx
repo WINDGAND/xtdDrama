@@ -7,6 +7,7 @@ import { requestLoginDirect } from "@/lib/request-login";
 import { useAuth } from "@/components/providers/auth-provider";
 import { Toast } from "@/components/ui/toast";
 import { InlineAlert } from "@/components/ui/inline-alert";
+import { readPipelineBuffer, computePipelineStats } from "@/lib/pipeline-observability";
 
 const MAX_NICKNAME_LEN = 12;
 const PROFILE_CACHE_PREFIX = "xtdDrama.profile.";
@@ -655,7 +656,85 @@ export default function SettingsPage() {
           </div>
         ) : null}
 
+        {/* 评审演示面板 */}
+        <DemoPipelinePanel />
+
       </div>
+    </div>
+  );
+}
+
+/* ----------------------------------------------------------------
+ * 评审演示面板：从 sessionStorage 读取 pipeline 埋点，展示链路质量数据
+ * 仅当有 pipeline 数据时才显示（对普通用户无感知）
+ * ---------------------------------------------------------------- */
+function DemoPipelinePanel() {
+  const [stats, setStats] = useState<ReturnType<typeof computePipelineStats> | null>(null);
+  const [lastEvents, setLastEvents] = useState<Array<{ event: string; at: number; durationMs?: number; reason?: string }>>([]);
+
+  useEffect(() => {
+    const buffer = readPipelineBuffer();
+    if (buffer.length === 0) return;
+    setStats(computePipelineStats(buffer));
+    setLastEvents(
+      buffer
+        .slice(-6)
+        .reverse()
+        .map((x) => ({ event: x.event, at: x.at, durationMs: x.durationMs, reason: x.reason }))
+    );
+  }, []);
+
+  if (!stats || stats.generateAttempts === 0) return null;
+
+  return (
+    <div className="mt-10">
+      <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+        链路质量（本次演示）
+      </div>
+      <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-500">
+        来自本 session 的 pipeline 埋点，刷新后重置。
+      </p>
+
+      <div className="mt-3 divide-y divide-zinc-100 dark:divide-white/[0.06] border-y border-zinc-100 dark:border-white/[0.06]">
+        {[
+          { label: "生图尝试次数", value: String(stats.generateAttempts) },
+          { label: "生图成功率", value: stats.successRate !== null ? `${stats.successRate}%` : "—" },
+          { label: "中位生图耗时", value: stats.medianGenerateDurationMs ? `${(stats.medianGenerateDurationMs / 1000).toFixed(1)} s` : "—" },
+          { label: "发布成功次数", value: String(stats.publishSuccess) },
+        ].map((row) => (
+          <div key={row.label} className="py-2.5 flex items-center justify-between gap-4">
+            <div className="text-sm text-zinc-500 dark:text-zinc-400">{row.label}</div>
+            <div className="text-sm font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">{row.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {lastEvents.length > 0 && (
+        <div className="mt-3">
+          <div className="text-xs text-zinc-500 dark:text-zinc-500 mb-2">最近事件</div>
+          <div className="flex flex-col gap-1">
+            {lastEvents.map((ev, i) => (
+              <div key={i} className="flex items-center gap-2 text-[11px] font-mono">
+                <span className="text-zinc-400 dark:text-zinc-600 shrink-0">
+                  {new Date(ev.at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                </span>
+                <span className={[
+                  "truncate",
+                  ev.event.includes("fail") || ev.event.includes("failed")
+                    ? "text-red-500 dark:text-red-400"
+                    : ev.event.includes("success") || ev.event.includes("completed")
+                      ? "text-green-600 dark:text-green-400"
+                      : "text-zinc-600 dark:text-zinc-400",
+                ].join(" ")}>
+                  {ev.event.replace("pipeline_", "")}
+                  {ev.durationMs ? ` · ${(ev.durationMs / 1000).toFixed(1)}s` : ""}
+                  {ev.reason ? ` · ${ev.reason.slice(0, 30)}` : ""}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

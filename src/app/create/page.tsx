@@ -14,6 +14,8 @@ import { LiveLikeVideo } from "@/components/ui/live-like-video";
 import type { VisionAnalysis, VisionResponse } from "@/types/vision";
 import type { GuessOption } from "@/types/guess";
 import { useAuth } from "@/components/providers/auth-provider";
+import { emitPipelineMetric } from "@/lib/pipeline-observability";
+import { DRAMA_WORD_GRADIENT_CLASS } from "@/lib/drama-word-style";
 import ProfilePic1 from "@/../images/ProfilePic1.jpg";
 import ProfilePic2 from "@/../images/ProfilePic2.jpg";
 import ProfilePic3 from "@/../images/ProfilePic3.jpg";
@@ -113,18 +115,18 @@ const HeroCompare = dynamic(
   ) }
 );
 
-const WORKSPACE_ALLOWED_TYPES = ["image/jpeg", "image/png"];
-const WORKSPACE_ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png"];
+const WORKSPACE_ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const WORKSPACE_ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"];
 const WORKSPACE_ACCEPT = [...WORKSPACE_ALLOWED_EXTENSIONS, ...WORKSPACE_ALLOWED_TYPES].join(",");
-const WORKSPACE_MAX_BYTES = 5 * 1024 * 1024;
+const WORKSPACE_MAX_BYTES = 10 * 1024 * 1024;
 
 function validateWorkspaceImageFile(file: File): string | null {
   if (!WORKSPACE_ALLOWED_TYPES.includes(file.type)) {
-    return `仅支持 JPG / PNG 格式（当前：${file.type || "未知"}）`;
+    return `仅支持 JPG / PNG / WebP 格式（当前：${file.type || "未知"}）`;
   }
   if (file.size > WORKSPACE_MAX_BYTES) {
     const mb = (file.size / 1024 / 1024).toFixed(1);
-    return `文件大小 ${mb} MB，超出 5 MB 限制`;
+    return `文件大小 ${mb} MB，超出 10 MB 限制`;
   }
   return null;
 }
@@ -215,19 +217,27 @@ export default function CreatePage() {
   } | null>(null);
   const [toast, setToast] = useState<null | { title: string; description?: string; tone?: "success" | "error" | "info"; durationMs?: number }>(null);
   const [publishing, setPublishing] = useState(false);
+  const [referenceUploading, setReferenceUploading] = useState(false);
+  const [evalScore, setEvalScore] = useState<{
+    overall: number; subjectMatch: number; emotionMatch: number;
+    shareability: number; verdict: string; suggestRetry: boolean;
+  } | null>(null);
   const prefersReducedMotion = usePrefersReducedMotion();
   const authed = authStatus === "loading" ? null : authStatus === "authed";
   const lastGenerateRef = useRef<{ option: GuessOption; mode: "image" | "video" } | null>(null);
+  const generateStartedAtRef = useRef<number | null>(null);
+  const sourceTypeRef = useRef<"image" | "video">("image");
+  const publicUrlReadyRef = useRef(false);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rePickInputRef = useRef<HTMLInputElement | null>(null);
   const workspaceRootRef = useRef<HTMLDivElement | null>(null);
   const prevWorkspaceModeRef = useRef(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
-  const dramaWordCls = useMemo(() => [
-    "bg-gradient-to-r from-blue-600 via-violet-500 to-fuchsia-500",
-    "text-transparent bg-clip-text",
-    "drop-shadow-[0_1px_0_rgba(0,0,0,0.08)] dark:drop-shadow-[0_1px_0_rgba(0,0,0,0.32)]",
-  ].join(" "), []);
+  // 与顶栏 logo「Drama」同款紫粉渐变
+  const dramaWordCls = useMemo(
+    () => ["font-semibold", DRAMA_WORD_GRADIENT_CLASS].join(" "),
+    []
+  );
   const titleTokens = useMemo(() => ([
     { text: "把", cls: "font-normal" },
     { text: "日常碎片", cls: "font-semibold" },
@@ -273,7 +283,7 @@ export default function CreatePage() {
     document.body.scrollTop = 0;
   }, [prefersReducedMotion]);
 
-  // 生成完成时：弹出提示 + 滚动到操作区
+  // 生成完成时：弹出提示 + 滚动到操作区 + 触发一致性评估
   useEffect(() => {
     if (job?.status !== "completed" || !job.resultUrl) return;
     showToast("Drama 图已生成！", {
@@ -284,6 +294,29 @@ export default function CreatePage() {
     try {
       completedActionsRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     } catch { /* noop */ }
+    // 异步触发一致性评估，不阻断主流程
+    if (analysisResult && job.resultUrl) {
+      setEvalScore(null);
+      fetch("/api/drama/evaluate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          analysis: analysisResult,
+          resultUrl: job.resultUrl,
+          style: job.style,
+        }),
+      })
+        .then((r) => r.json().catch(() => null))
+        .then((data) => {
+          if (data?.success && data.data) {
+            setEvalScore(data.data as {
+              overall: number; subjectMatch: number; emotionMatch: number;
+              shareability: number; verdict: string; suggestRetry: boolean;
+            });
+          }
+        })
+        .catch(() => void 0);
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job?.status, job?.resultUrl]);
 
@@ -348,6 +381,8 @@ export default function CreatePage() {
 
   const handlePublicUrlReady = useCallback((url: string) => {
     setPublicUrl(url);
+    setReferenceUploading(false);
+    publicUrlReadyRef.current = true;
   }, []);
 
   const handleUploadSuccess = useCallback((base64: string) => {
@@ -356,6 +391,9 @@ export default function CreatePage() {
     setAnalysisResult(null);
     setJob(null);
     setPublicUrl(null);
+    setReferenceUploading(true);
+    publicUrlReadyRef.current = false;
+    emitPipelineMetric("pipeline_source_selected", { sourceType: sourceTypeRef.current });
   }, []);
 
   const resetWorkspace = useCallback(() => {
@@ -364,11 +402,29 @@ export default function CreatePage() {
     setAnalysisResult(null);
     setJob(null);
     setPublicUrl(null);
+    setReferenceUploading(false);
+    sourceTypeRef.current = "image";
+    publicUrlReadyRef.current = false;
   }, []);
 
   const handleAnalysisComplete = useCallback((analysis: VisionAnalysis) => {
     setAnalysisResult(analysis);
     setJob(null);
+    emitPipelineMetric("pipeline_vision_ready", {
+      sourceType: sourceTypeRef.current,
+      hasReference: publicUrlReadyRef.current,
+    });
+  }, []);
+
+  const analyzeWithVision = useCallback(async (payload: { imageBase64?: string; imageUrl?: string }) => {
+    const res = await fetch("/api/vision", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const result = (await res.json()) as VisionResponse;
+    if (!result.success) throw new Error(result.error);
+    return result.data;
   }, []);
 
   const handleRePickFile = useCallback(async (file: File) => {
@@ -379,6 +435,7 @@ export default function CreatePage() {
     }
 
     try {
+      sourceTypeRef.current = "image";
       const base64 = await readFileAsDataUrl(file);
       handleUploadSuccess(base64);
       requestAnimationFrame(alignWorkspaceTop);
@@ -397,6 +454,7 @@ export default function CreatePage() {
           };
           if (uploadData.success && uploadData.publicUrl) {
             handlePublicUrlReady(uploadData.publicUrl);
+            emitPipelineMetric("pipeline_upload_done", { sourceType: "image", hasReference: true });
           } else if (!uploadData.success) {
             console.warn("[CreatePage] Supabase 上传失败：", uploadData.error);
           }
@@ -405,27 +463,13 @@ export default function CreatePage() {
         }
       })();
 
-      const visionTask = (async () => {
-        const apiResponse = await fetch("/api/vision", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageBase64: base64 }),
-        });
-        return (await apiResponse.json()) as VisionResponse;
-      })();
-
-      const [visionResult] = await Promise.all([visionTask, uploadTask]);
-      if (!visionResult.success) {
-        showToast("分析失败", { description: visionResult.error, tone: "error", durationMs: 3800 });
-        return;
-      }
-
-      handleAnalysisComplete(visionResult.data);
+      const [analysis] = await Promise.all([analyzeWithVision({ imageBase64: base64 }), uploadTask]);
+      handleAnalysisComplete(analysis);
     } catch (e) {
       console.error("[CreatePage] 重新选择处理异常：", e);
       showToast("重新选择失败", { description: "请稍后重试", tone: "error", durationMs: 3800 });
     }
-  }, [alignWorkspaceTop, handleAnalysisComplete, handlePublicUrlReady, handleUploadSuccess, showToast]);
+  }, [alignWorkspaceTop, analyzeWithVision, handleAnalysisComplete, handlePublicUrlReady, handleUploadSuccess, showToast]);
 
   const handleRePickInputChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     const file = e.currentTarget.files?.[0] ?? null;
@@ -462,10 +506,22 @@ export default function CreatePage() {
           : (rawData as { url?: string } | undefined)?.url;
 
         if (upstreamStatus === "completed" && resultUrl) {
+          const startedAt = generateStartedAtRef.current;
+          emitPipelineMetric("pipeline_generate_completed", {
+            sourceType: sourceTypeRef.current,
+            mode,
+            durationMs: startedAt ? Date.now() - startedAt : undefined,
+            hasReference: !!publicUrl,
+          });
           setJob((j) => j ? { ...j, status: "completed", resultUrl } : j);
           return;
         }
         if (["failed", "error", "canceled"].includes(upstreamStatus)) {
+          emitPipelineMetric("pipeline_generate_failed", {
+            sourceType: sourceTypeRef.current,
+            mode,
+            reason: `任务状态：${upstreamStatus}`,
+          });
           setJob((j) => j ? { ...j, status: "failed", error: `任务状态：${upstreamStatus}` } : j);
           return;
         }
@@ -473,32 +529,52 @@ export default function CreatePage() {
         setJob((j) => j ? { ...j, status: "polling" } : j);
         pollTimerRef.current = setTimeout(poll, 3000);
       } catch (e) {
+        emitPipelineMetric("pipeline_generate_failed", {
+          sourceType: sourceTypeRef.current,
+          mode,
+          reason: e instanceof Error ? e.message : String(e),
+        });
         setJob((j) => j ? { ...j, status: "failed", error: String(e) } : j);
       }
     };
 
     poll();
-  }, []);
+  }, [publicUrl]);
 
   const handleGenerate = useCallback(
     async (option: GuessOption, mode: "image" | "video") => {
       if (!analysisResult) return;
+      if (!publicUrl || referenceUploading) {
+        showToast("原图还在准备中", {
+          description: "稍等片刻，参考图上传完成后再生成，能提升结构一致性。",
+          tone: "info",
+          durationMs: 3800,
+        });
+        return;
+      }
       if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
       lastGenerateRef.current = { option, mode };
+      generateStartedAtRef.current = Date.now();
 
       const prompt = [
         `${analysisResult.mainEntity}，情绪：${analysisResult.userEmotion}。`,
         option.prompt,
+        "preserve original subject and composition, keep subject recognizable, avoid neon glow, avoid cyberpunk style, keep natural visual tone",
       ].join(" ");
 
       const submitPath = mode === "image" ? "/api/image/submit" : "/api/video/submit";
       const submitModel = mode === "image" ? "hy-image-v3.0" : "hy-video-1.5";
 
       setJob({ mode, style: option.title, jobId: "", status: "submitting" });
+      setEvalScore(null);
+      emitPipelineMetric("pipeline_generate_submit", {
+        sourceType: sourceTypeRef.current,
+        mode,
+        hasReference: !!publicUrl,
+      });
 
       try {
-        const body: Record<string, unknown> = { prompt, model: submitModel };
-        if (publicUrl) body.images = [publicUrl];
+        const body: Record<string, unknown> = { prompt, model: submitModel, images: [publicUrl] };
 
         const res = await fetch(submitPath, {
           method: "POST",
@@ -509,10 +585,19 @@ export default function CreatePage() {
           success: boolean;
           data?: { id?: string; [k: string]: unknown };
           error?: string;
+          code?: string;
         };
 
         if (!data.success || !data.data?.id) {
-          setJob((j) => j ? { ...j, status: "failed", error: data.error ?? "提交失败" } : j);
+          const errMsg = data.code === "TIMEOUT"
+            ? "提交超时，请重试"
+            : data.error ?? "提交失败";
+          emitPipelineMetric("pipeline_generate_failed", {
+            sourceType: sourceTypeRef.current,
+            mode,
+            reason: errMsg,
+          });
+          setJob((j) => j ? { ...j, status: "failed", error: errMsg } : j);
           return;
         }
 
@@ -520,10 +605,16 @@ export default function CreatePage() {
         setJob((j) => j ? { ...j, jobId: newJobId, status: "polling" } : j);
         pollJob(mode, newJobId);
       } catch (e) {
-        setJob((j) => j ? { ...j, status: "failed", error: String(e) } : j);
+        const errMsg = e instanceof Error ? e.message : String(e);
+        emitPipelineMetric("pipeline_generate_failed", {
+          sourceType: sourceTypeRef.current,
+          mode,
+          reason: errMsg,
+        });
+        setJob((j) => j ? { ...j, status: "failed", error: errMsg } : j);
       }
     },
-    [analysisResult, publicUrl, pollJob]
+    [analysisResult, publicUrl, referenceUploading, pollJob, showToast]
   );
 
   const retryLastGenerate = useCallback(() => {
@@ -560,20 +651,54 @@ export default function CreatePage() {
       } catch {
         // ignore
       }
-      // fire-and-forget：确保发布后 likes/comments 的源数据尽快稳定（幂等）
-      fetch("/api/likes/npc-generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ postId: data.id }),
-      }).catch(() => void 0);
-      fetch("/api/comments/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ postId: data.id }),
-      }).catch(() => void 0);
-      showToast("已发布", { description: "已同步到广场", tone: "success" });
+
+      // 触发 NPC 互动（并发，等待结果以便给出准确提示）
+      const triggerInteraction = async (path: string) => {
+        const controller = new AbortController();
+        const tid = setTimeout(() => controller.abort(), 4000);
+        try {
+          const r = await fetch(path, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ postId: data.id }),
+            signal: controller.signal,
+          });
+          const payload = (await r.json().catch(() => null)) as { success?: boolean } | null;
+          return r.ok && !!payload?.success;
+        } finally {
+          clearTimeout(tid);
+        }
+      };
+
+      const [likesOk, commentsOk] = await Promise.allSettled([
+        triggerInteraction("/api/likes/npc-generate"),
+        triggerInteraction("/api/comments/generate"),
+      ]);
+      const interactionReady =
+        likesOk.status === "fulfilled" && likesOk.value &&
+        commentsOk.status === "fulfilled" && commentsOk.value;
+
+      emitPipelineMetric("pipeline_publish_success", {
+        sourceType: sourceTypeRef.current,
+        mode: job.mode,
+      });
+
+      if (interactionReady) {
+        showToast("已发布", { description: "已同步到广场，NPC 即将到场互动", tone: "success" });
+      } else {
+        showToast("已发布", {
+          description: "内容已上广场，互动生成稍有延迟，可稍后刷新查看。",
+          tone: "info",
+          durationMs: 4200,
+        });
+      }
       router.push("/plaza");
     } catch (e) {
+      emitPipelineMetric("pipeline_publish_failed", {
+        sourceType: sourceTypeRef.current,
+        mode: job.mode,
+        reason: e instanceof Error ? e.message : String(e),
+      });
       showToast(String(e));
     } finally {
       setPublishing(false);
@@ -1052,35 +1177,73 @@ export default function CreatePage() {
                     )}
 
                     {job.status === "completed" && job.resultUrl && (
-                      <div ref={completedActionsRef} className="flex flex-wrap gap-2 pt-1">
-                        <button
-                          type="button"
-                          onClick={() => copyToClipboard(job.resultUrl!)}
-                          className="h-8 px-3 rounded-lg text-xs font-medium border border-zinc-200/80 dark:border-white/[0.10] text-zinc-700 dark:text-zinc-200 bg-white dark:bg-white/[0.02] hover:bg-zinc-50 dark:hover:bg-white/[0.05] transition-colors"
-                        >
-                          复制链接
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => downloadFromUrl(
-                            job.resultUrl!,
-                            `drama-${job.mode === "image" ? "image" : "live"}-${Date.now()}${job.mode === "image" ? ".png" : ".mp4"}`
-                          )}
-                          className="h-8 px-3 rounded-lg text-xs font-medium border border-zinc-200/80 dark:border-white/[0.10] text-zinc-700 dark:text-zinc-200 bg-white dark:bg-white/[0.02] hover:bg-zinc-50 dark:hover:bg-white/[0.05] transition-colors"
-                        >
-                          下载
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handlePublish}
-                          disabled={!canPublish}
-                          className={[
-                            "h-8 px-3 rounded-lg text-xs font-medium text-white apple-btn-primary",
-                            "disabled:opacity-60 disabled:cursor-not-allowed",
-                          ].join(" ")}
-                        >
-                          {publishing ? "发布中…" : "发布到广场"}
-                        </button>
+                      <div ref={completedActionsRef} className="flex flex-col gap-3">
+                        {/* 一致性评分卡片 */}
+                        {evalScore ? (
+                          <div className="rounded-lg border border-zinc-200/70 dark:border-white/[0.08] px-3 py-2.5 bg-white/60 dark:bg-white/[0.03]">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="flex items-center gap-3">
+                                <span className={[
+                                  "text-base font-semibold tabular-nums",
+                                  evalScore.overall >= 75 ? "text-green-600 dark:text-green-400"
+                                    : evalScore.overall >= 55 ? "text-amber-600 dark:text-amber-400"
+                                    : "text-red-500 dark:text-red-400",
+                                ].join(" ")}>
+                                  {evalScore.overall}
+                                </span>
+                                <span className="text-[11px] text-zinc-500 dark:text-zinc-500">/ 100</span>
+                              </div>
+                              <div className="flex gap-2 text-[11px] text-zinc-500 dark:text-zinc-500">
+                                <span title="主体一致">主体 {evalScore.subjectMatch}</span>
+                                <span>·</span>
+                                <span title="情绪匹配">情绪 {evalScore.emotionMatch}</span>
+                                <span>·</span>
+                                <span title="可分享性">传播 {evalScore.shareability}</span>
+                              </div>
+                            </div>
+                            <p className="mt-1.5 text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                              {evalScore.verdict}
+                            </p>
+                            {evalScore.suggestRetry && (
+                              <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
+                                建议换个风格重新生成
+                              </p>
+                            )}
+                          </div>
+                        ) : resultPending ? null : (
+                          <div className="text-[11px] text-zinc-400 dark:text-zinc-600">一致性评估中…</div>
+                        )}
+
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => copyToClipboard(job.resultUrl!)}
+                            className="h-8 px-3 rounded-lg text-xs font-medium border border-zinc-200/80 dark:border-white/[0.10] text-zinc-700 dark:text-zinc-200 bg-white dark:bg-white/[0.02] hover:bg-zinc-50 dark:hover:bg-white/[0.05] transition-colors"
+                          >
+                            复制链接
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => downloadFromUrl(
+                              job.resultUrl!,
+                              `drama-${job.mode === "image" ? "image" : "live"}-${Date.now()}${job.mode === "image" ? ".png" : ".mp4"}`
+                            )}
+                            className="h-8 px-3 rounded-lg text-xs font-medium border border-zinc-200/80 dark:border-white/[0.10] text-zinc-700 dark:text-zinc-200 bg-white dark:bg-white/[0.02] hover:bg-zinc-50 dark:hover:bg-white/[0.05] transition-colors"
+                          >
+                            下载
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handlePublish}
+                            disabled={!canPublish}
+                            className={[
+                              "h-8 px-3 rounded-lg text-xs font-medium text-white apple-btn-primary",
+                              "disabled:opacity-60 disabled:cursor-not-allowed",
+                            ].join(" ")}
+                          >
+                            {publishing ? "发布中…" : "发布到广场"}
+                          </button>
+                        </div>
                       </div>
                     )}
 

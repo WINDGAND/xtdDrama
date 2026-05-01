@@ -9,6 +9,21 @@ import { emitGuessMetric } from "@/lib/guess-observability";
 
 const MAX_BATCH = 3;
 
+/* ---- 稳定的 variants 常量（提升到模块顶层，避免每次 render 创建新对象引用导致 Framer Motion 重跑动画） ---- */
+const OPTION_ROW_VARIANTS = {
+  hidden: { opacity: 0, y: motionDistances.y },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: motionDurations.medium, ease: motionEase.out },
+  },
+} as const;
+
+const OPTIONS_LIST_VARIANTS = {
+  hidden: {},
+  visible: { transition: { staggerChildren: motionStaggers.small, delayChildren: 0.12 } },
+} as const;
+
 /* -------- Guess 阶段专属 loading -------- */
 const GUESS_COPY = [
   "正在根据你的日常碎片匹配风格…",
@@ -112,43 +127,36 @@ function useTypewriter(text: string, speed = 22): string {
   return displayed;
 }
 
-/* 单个风格选项按钮 */
-function OptionButton({
-  option, selected, onSelect,
-}: { option: GuessOption; selected: boolean; onSelect: () => void }) {
+/* 单个风格选项行（平铺列表，无卡片边框） */
+function OptionRow({
+  option, selected, isFirst, onSelect,
+}: { option: GuessOption; selected: boolean; isFirst: boolean; onSelect: () => void }) {
   const [promptExpanded, setPromptExpanded] = useState(false);
 
   return (
-    <motion.div
-      variants={{
-        hidden: { opacity: 0, y: motionDistances.y },
-        visible: {
-          opacity: 1,
-          y: 0,
-          transition: { duration: motionDurations.medium, ease: motionEase.out },
-        },
-      }}
-    >
+    <motion.div variants={OPTION_ROW_VARIANTS}>
       <div
         role="button"
         tabIndex={0}
         onClick={onSelect}
         onKeyDown={(e) => e.key === "Enter" && onSelect()}
         className={[
-          "rounded-lg border px-4 py-3 flex flex-col gap-1.5",
-          "transition-all duration-150 cursor-pointer",
+          "flex items-start gap-2.5 py-3 -mx-1 px-1 rounded",
+          !isFirst && "border-t border-zinc-100 dark:border-white/[0.06]",
+          "transition-colors duration-150 cursor-pointer",
           "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400",
           selected
-            ? "border-blue-400 dark:border-blue-500 bg-blue-50/60 dark:bg-blue-900/15"
-            : "border-zinc-200 dark:border-white/[0.08] bg-white dark:bg-[oklch(0.18_0.004_265)]",
-          "hover:border-zinc-300 dark:hover:border-white/[0.14]",
+            ? "bg-blue-50/40 dark:bg-blue-900/10"
+            : "hover:bg-zinc-50 dark:hover:bg-white/[0.03]",
         ].join(" ")}
       >
-        <div className="flex items-center gap-2">
-          <span className={[
-            "w-1.5 h-1.5 rounded-full flex-shrink-0 transition-colors duration-150",
-            selected ? "bg-blue-500" : "bg-zinc-200 dark:bg-white/20",
-          ].join(" ")} />
+        {/* 选中状态：左侧 2px 蓝色竖线；未选中时透明占位 */}
+        <span className={[
+          "mt-0.5 w-[2px] self-stretch rounded-full flex-shrink-0 transition-colors duration-150",
+          selected ? "bg-blue-500" : "bg-transparent",
+        ].join(" ")} />
+
+        <div className="min-w-0 flex-1 flex flex-col gap-1">
           <span className={[
             "text-sm font-medium transition-colors duration-150",
             selected
@@ -157,31 +165,30 @@ function OptionButton({
           ].join(" ")}>
             {option.title}
           </span>
-        </div>
 
-        {option.description ? (
-          <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed pl-3.5">
-            {option.description}
-          </p>
-        ) : null}
-
-        <div
-          className="pl-3.5"
-          onClick={(e) => e.stopPropagation()}
-          onKeyDown={(e) => e.stopPropagation()}
-        >
-          <button
-            type="button"
-            onClick={() => setPromptExpanded((v) => !v)}
-            className="text-[11px] text-zinc-400 dark:text-zinc-600 hover:text-zinc-600 dark:hover:text-zinc-400 transition-colors duration-150 underline-offset-2 hover:underline"
-          >
-            {promptExpanded ? "收起提示词" : "查看提示词原文"}
-          </button>
-          {promptExpanded && (
-            <p className="mt-1.5 text-[11px] font-mono text-zinc-400 dark:text-zinc-600 leading-relaxed break-all whitespace-pre-wrap">
-              {option.prompt}
+          {option.description ? (
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
+              {option.description}
             </p>
-          )}
+          ) : null}
+
+          <div
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setPromptExpanded((v) => !v)}
+              className="text-[11px] text-zinc-400 dark:text-zinc-600 hover:text-zinc-600 dark:hover:text-zinc-400 transition-colors duration-150 underline-offset-2 hover:underline"
+            >
+              {promptExpanded ? "收起提示词" : "查看提示词原文"}
+            </button>
+            {promptExpanded && (
+              <p className="mt-1.5 text-[11px] font-mono text-zinc-400 dark:text-zinc-600 leading-relaxed break-all whitespace-pre-wrap">
+                {option.prompt}
+              </p>
+            )}
+          </div>
         </div>
       </div>
     </motion.div>
@@ -417,29 +424,23 @@ export function GuessRefine({ analysis, onGenerate, isGenerating = false }: Gues
         className="flex flex-col gap-4"
       >
 
-        {/* AI 回复气泡 */}
+        {/* AI 分析（平铺，无卡片容器） */}
         <motion.div
           initial={{ opacity: 0, y: motionDistances.ySmall }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.05, duration: motionDurations.medium, ease: motionEase.out }}
-          className={[
-            "rounded-lg border border-zinc-200 dark:border-white/[0.08]",
-            "bg-white dark:bg-[oklch(0.18_0.004_265)]",
-            "px-4 py-3.5",
-            "shadow-[0_1px_2px_oklch(0_0_0/0.04)]",
-          ].join(" ")}
         >
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-[11px] font-medium text-zinc-400 dark:text-zinc-500 tracking-wider uppercase">
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] font-medium text-zinc-400 dark:text-zinc-500 tracking-widest uppercase">
               AI 分析
             </p>
             {batchIndex > 1 && (
-              <span className="text-[10px] text-zinc-400 dark:text-zinc-600 bg-zinc-100 dark:bg-white/[0.06] px-1.5 py-0.5 rounded-full">
+              <span className="text-[10px] text-zinc-400 dark:text-zinc-600 tabular-nums">
                 第 {batchIndex} 批
               </span>
             )}
           </div>
-          <p className="text-sm leading-relaxed text-zinc-700 dark:text-zinc-300 min-h-[1.4rem]">
+          <p className="mt-2 text-sm leading-relaxed text-zinc-700 dark:text-zinc-300 min-h-[1.4rem]">
             {typedReply}
             {typedReply.length < (result?.reply.length ?? 0) && (
               <motion.span
@@ -451,24 +452,22 @@ export function GuessRefine({ analysis, onGenerate, isGenerating = false }: Gues
           </p>
         </motion.div>
 
-        {/* 三个风格选项 */}
+        {/* 三个风格选项（平铺列表，divider 分隔） */}
         <motion.div
-          variants={{
-            hidden: {},
-            visible: { transition: { staggerChildren: motionStaggers.small, delayChildren: 0.12 } },
-          }}
+          variants={OPTIONS_LIST_VARIANTS}
           initial="hidden"
           animate="visible"
-          className="flex flex-col gap-2"
+          className="flex flex-col"
         >
-          <p className="text-xs text-zinc-400 dark:text-zinc-500 mb-0.5">
+          <p className="text-xs text-zinc-400 dark:text-zinc-500 mb-1">
             选择一个风格方向
           </p>
-          {result!.options.map((opt) => (
-            <OptionButton
+          {result!.options.map((opt, i) => (
+            <OptionRow
               key={opt.id}
               option={opt}
               selected={selectedId === opt.id}
+              isFirst={i === 0}
               onSelect={() => {
                 setSelectedId(opt.id);
                 emitGuessMetric("guess_option_selected", { batchIndex, optionTitle: opt.title });
@@ -523,7 +522,7 @@ export function GuessRefine({ analysis, onGenerate, isGenerating = false }: Gues
           )}
         </div>
 
-        {/* 我自己说一句 输入区 */}
+        {/* 我自己说一句 输入区（平铺，无外层卡片容器） */}
         <AnimatePresence>
           {hintOpen && (
             <motion.div
@@ -532,14 +531,10 @@ export function GuessRefine({ analysis, onGenerate, isGenerating = false }: Gues
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -6 }}
               transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-              className={[
-                "rounded-lg border border-zinc-200 dark:border-white/[0.08]",
-                "bg-white dark:bg-[oklch(0.18_0.004_265)]",
-                "px-4 py-3.5 flex flex-col gap-3",
-              ].join(" ")}
+              className="border-t border-zinc-100 dark:border-white/[0.06] pt-3 flex flex-col gap-3"
             >
               <div className="flex items-center justify-between">
-                <p className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
+                <p className="text-[10px] font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-widest">
                   说说你的偏好
                 </p>
                 <button

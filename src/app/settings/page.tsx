@@ -7,6 +7,7 @@ import { requestLoginDirect } from "@/lib/request-login";
 import { useAuth } from "@/components/providers/auth-provider";
 import { Toast } from "@/components/ui/toast";
 import { InlineAlert } from "@/components/ui/inline-alert";
+import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { readPipelineBuffer, computePipelineStats } from "@/lib/pipeline-observability";
 
 const MAX_NICKNAME_LEN = 12;
@@ -34,8 +35,6 @@ export default function SettingsPage() {
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [avatarPreviewOpen, setAvatarPreviewOpen] = useState(false);
-  const closeBtnRef = useRef<HTMLButtonElement | null>(null);
-  const lastFocusRef = useRef<HTMLElement | null>(null);
 
   const authed = authStatus === "loading" ? null : authStatus === "authed";
 
@@ -125,34 +124,6 @@ export default function SettingsPage() {
     }, 0);
     return () => window.clearTimeout(t);
   }, [changingPassword]);
-
-  useEffect(() => {
-    if (!avatarPreviewOpen) return;
-    lastFocusRef.current = (document.activeElement as HTMLElement | null) ?? null;
-    const t = window.setTimeout(() => {
-      closeBtnRef.current?.focus();
-    }, 0);
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setAvatarPreviewOpen(false);
-    };
-    const onFocusIn = (e: FocusEvent) => {
-      const target = e.target as Node | null;
-      const dialog = document.getElementById("avatar-preview-dialog");
-      if (!dialog || !target) return;
-      if (!dialog.contains(target)) {
-        closeBtnRef.current?.focus();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    window.addEventListener("focusin", onFocusIn);
-    return () => {
-      window.clearTimeout(t);
-      window.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("focusin", onFocusIn);
-      Promise.resolve().then(() => lastFocusRef.current?.focus());
-    };
-  }, [avatarPreviewOpen]);
-
 
   const signOut = useCallback(async () => {
     try {
@@ -337,43 +308,11 @@ export default function SettingsPage() {
         onClear={clearToast}
       />
       {avatarPreviewOpen && avatarUrl ? (
-        <div
-          className="fixed inset-0 z-[70] bg-black/50 backdrop-blur-[1px]"
-          role="dialog"
-          aria-modal="true"
-          aria-label="头像预览"
-          onClick={() => setAvatarPreviewOpen(false)}
-        >
-          <div className="w-full h-full flex items-center justify-center p-4">
-            <div
-              id="avatar-preview-dialog"
-              className="relative max-w-[min(560px,calc(100vw-32px))] w-full rounded-2xl border border-white/10 bg-white/90 dark:bg-[oklch(0.16_0.004_265)]/90 backdrop-blur shadow-[0_20px_60px_oklch(0_0_0/0.35)] overflow-hidden"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-200/70 dark:border-white/[0.08]">
-                <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">头像预览</div>
-                <button
-                  ref={closeBtnRef}
-                  type="button"
-                  onClick={() => setAvatarPreviewOpen(false)}
-                  className="grid place-items-center h-9 w-9 rounded-xl text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100 hover:bg-zinc-100/80 dark:hover:bg-white/[0.06] transition-colors"
-                  aria-label="关闭"
-                >
-                  <svg className="block" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M18 6 6 18" />
-                    <path d="M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-              <div className="p-4">
-                <div className="mx-auto w-[min(420px,70vw)] aspect-square rounded-2xl overflow-hidden bg-zinc-50 dark:bg-white/[0.03] border border-zinc-200/60 dark:border-white/[0.10]">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={avatarUrl} alt="头像预览" className="h-full w-full object-cover" />
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <ImageLightbox
+          src={avatarUrl}
+          alt="头像预览"
+          onClose={() => setAvatarPreviewOpen(false)}
+        />
       ) : null}
       <div className="mx-auto w-full max-w-3xl">
         <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
@@ -670,18 +609,11 @@ export default function SettingsPage() {
  * ---------------------------------------------------------------- */
 function DemoPipelinePanel() {
   const [stats, setStats] = useState<ReturnType<typeof computePipelineStats> | null>(null);
-  const [lastEvents, setLastEvents] = useState<Array<{ event: string; at: number; durationMs?: number; reason?: string }>>([]);
 
   useEffect(() => {
     const buffer = readPipelineBuffer();
     if (buffer.length === 0) return;
     setStats(computePipelineStats(buffer));
-    setLastEvents(
-      buffer
-        .slice(-6)
-        .reverse()
-        .map((x) => ({ event: x.event, at: x.at, durationMs: x.durationMs, reason: x.reason }))
-    );
   }, []);
 
   if (!stats || stats.generateAttempts === 0) return null;
@@ -700,41 +632,14 @@ function DemoPipelinePanel() {
           { label: "生图尝试次数", value: String(stats.generateAttempts) },
           { label: "生图成功率", value: stats.successRate !== null ? `${stats.successRate}%` : "—" },
           { label: "中位生图耗时", value: stats.medianGenerateDurationMs ? `${(stats.medianGenerateDurationMs / 1000).toFixed(1)} s` : "—" },
-          { label: "发布成功次数", value: String(stats.publishSuccess) },
         ].map((row) => (
-          <div key={row.label} className="py-2.5 flex items-center justify-between gap-4">
-            <div className="text-sm text-zinc-500 dark:text-zinc-400">{row.label}</div>
-            <div className="text-sm font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">{row.value}</div>
+          <div key={row.label} className="py-3 flex items-center justify-between gap-4 transition-colors hover:bg-zinc-50 dark:hover:bg-white/[0.04]">
+            <div className="text-sm text-zinc-600 dark:text-zinc-400">{row.label}</div>
+            <div className="text-sm font-medium tabular-nums text-zinc-900 dark:text-zinc-100">{row.value}</div>
           </div>
         ))}
       </div>
 
-      {lastEvents.length > 0 && (
-        <div className="mt-3">
-          <div className="text-xs text-zinc-500 dark:text-zinc-500 mb-2">最近事件</div>
-          <div className="flex flex-col gap-1">
-            {lastEvents.map((ev, i) => (
-              <div key={i} className="flex items-center gap-2 text-[11px] font-mono">
-                <span className="text-zinc-400 dark:text-zinc-600 shrink-0">
-                  {new Date(ev.at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
-                </span>
-                <span className={[
-                  "truncate",
-                  ev.event.includes("fail") || ev.event.includes("failed")
-                    ? "text-red-500 dark:text-red-400"
-                    : ev.event.includes("success") || ev.event.includes("completed")
-                      ? "text-green-600 dark:text-green-400"
-                      : "text-zinc-600 dark:text-zinc-400",
-                ].join(" ")}>
-                  {ev.event.replace("pipeline_", "")}
-                  {ev.durationMs ? ` · ${(ev.durationMs / 1000).toFixed(1)}s` : ""}
-                  {ev.reason ? ` · ${ev.reason.slice(0, 30)}` : ""}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -220,10 +220,6 @@ export default function CreatePage() {
   const [toast, setToast] = useState<null | { title: string; description?: string; tone?: "success" | "error" | "info"; durationMs?: number }>(null);
   const [publishing, setPublishing] = useState(false);
   const [referenceUploading, setReferenceUploading] = useState(false);
-  const [evalScore, setEvalScore] = useState<{
-    overall: number; subjectMatch: number; emotionMatch: number;
-    shareability: number; verdict: string; suggestRetry: boolean;
-  } | null>(null);
   const prefersReducedMotion = usePrefersReducedMotion();
   const authed = authStatus === "loading" ? null : authStatus === "authed";
   const lastGenerateRef = useRef<{ option: GuessOption; mode: "image" | "video" } | null>(null);
@@ -288,7 +284,7 @@ export default function CreatePage() {
     document.body.scrollTop = 0;
   }, [prefersReducedMotion]);
 
-  // 生成完成时：弹出提示 + 滚动到操作区 + 触发一致性评估
+  // 生成完成时：弹出提示 + 滚动到操作区
   useEffect(() => {
     if (job?.status !== "completed" || !job.resultUrl) return;
     showToast("Drama 图已生成！", {
@@ -299,29 +295,6 @@ export default function CreatePage() {
     try {
       completedActionsRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     } catch { /* noop */ }
-    // 异步触发一致性评估，不阻断主流程
-    if (analysisResult && job.resultUrl) {
-      setEvalScore(null);
-      fetch("/api/drama/evaluate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          analysis: analysisResult,
-          resultUrl: job.resultUrl,
-          style: job.style,
-        }),
-      })
-        .then((r) => r.json().catch(() => null))
-        .then((data) => {
-          if (data?.success && data.data) {
-            setEvalScore(data.data as {
-              overall: number; subjectMatch: number; emotionMatch: number;
-              shareability: number; verdict: string; suggestRetry: boolean;
-            });
-          }
-        })
-        .catch(() => void 0);
-    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job?.status, job?.resultUrl]);
 
@@ -583,25 +556,13 @@ export default function CreatePage() {
       lastGenerateRef.current = { option, mode };
       generateStartedAtRef.current = Date.now();
 
-      // 结构锚定语言：基于 Vision 分析的空间信息，加强 ControlNet-Lite 约束
-      const structuralAnchor = [
-        analysisResult.mainEntity ? `subject: ${analysisResult.mainEntity},` : "",
-        analysisResult.sceneState ? `scene: ${analysisResult.sceneState},` : "",
-        "exact spatial position and scale of subject preserved, no repositioning, no scaling, no cropping subject.",
-      ].filter(Boolean).join(" ");
-
-      const prompt = [
-        `${analysisResult.mainEntity}，情绪：${analysisResult.userEmotion}。`,
-        structuralAnchor,
-        option.prompt,
-        "preserve original subject and composition, keep subject clearly recognizable, avoid cyberpunk neon, avoid horror elements, avoid blood or violence, avoid dark gothic atmosphere",
-      ].join(" ");
+      // option.prompt 为中文叙事体，已包含「（请严格锁定原图的…）」锚定指令及 Drama 改造描述，直接使用
+      const prompt = option.prompt;
 
       const submitPath = mode === "image" ? "/api/image/submit" : "/api/video/submit";
       const submitModel = mode === "image" ? "hy-image-v3.0" : "hy-video-1.5";
 
       setJob({ mode, style: option.title, jobId: "", status: "submitting" });
-      setEvalScore(null);
       emitPipelineMetric("pipeline_generate_submit", {
         sourceType: sourceTypeRef.current,
         mode,
@@ -1274,42 +1235,6 @@ export default function CreatePage() {
 
                     {job.status === "completed" && job.resultUrl && (
                       <div ref={completedActionsRef} className="flex flex-col gap-3">
-                        {/* 一致性评分卡片 */}
-                        {evalScore ? (
-                          <div className="rounded-lg border border-zinc-200/70 dark:border-white/[0.08] px-3 py-2.5 bg-white/60 dark:bg-white/[0.03]">
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="flex items-center gap-3">
-                                <span className={[
-                                  "text-base font-semibold tabular-nums",
-                                  evalScore.overall >= 75 ? "text-green-600 dark:text-green-400"
-                                    : evalScore.overall >= 55 ? "text-amber-600 dark:text-amber-400"
-                                    : "text-red-500 dark:text-red-400",
-                                ].join(" ")}>
-                                  {evalScore.overall}
-                                </span>
-                                <span className="text-[11px] text-zinc-500 dark:text-zinc-500">/ 100</span>
-                              </div>
-                              <div className="flex gap-2 text-[11px] text-zinc-500 dark:text-zinc-500">
-                                <span title="主体一致">主体 {evalScore.subjectMatch}</span>
-                                <span>·</span>
-                                <span title="情绪匹配">情绪 {evalScore.emotionMatch}</span>
-                                <span>·</span>
-                                <span title="可分享性">传播 {evalScore.shareability}</span>
-                              </div>
-                            </div>
-                            <p className="mt-1.5 text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
-                              {evalScore.verdict}
-                            </p>
-                            {evalScore.suggestRetry && (
-                              <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
-                                建议换个风格重新生成
-                              </p>
-                            )}
-                          </div>
-                        ) : resultPending ? null : (
-                          <div className="text-[11px] text-zinc-400 dark:text-zinc-600">一致性评估中…</div>
-                        )}
-
                         <div className="flex flex-wrap gap-2 pt-1">
                           <button
                             type="button"

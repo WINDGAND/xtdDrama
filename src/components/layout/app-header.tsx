@@ -4,7 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { createBrowserSupabaseClient } from "@/lib/supabase-browser";
 import { useAuth } from "@/components/providers/auth-provider";
 import { Toast } from "@/components/ui/toast";
@@ -18,7 +18,65 @@ const NAV_LINKS = [
   { label: "我的", href: "/me" },
   { label: "设置", href: "/settings" },
   { label: "常见问题", href: "/faq" },
-];
+] as const;
+
+/** 与移动端底部导航同一套线框图标，桌面顶栏与底栏共用 */
+function NavItemIcon({ href, size = 18 }: { href: string; size?: number }) {
+  const strokeWidth = size <= 16 ? 1.75 : 1.8;
+  const svgProps = {
+    width: size,
+    height: size,
+    viewBox: "0 0 24 24" as const,
+    fill: "none" as const,
+    stroke: "currentColor",
+    strokeWidth,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true as const,
+  };
+
+  switch (href) {
+    case "/plaza":
+      return (
+        <svg {...svgProps}>
+          <path d="M3 10.5 12 4l9 6.5" />
+          <path d="M5 10v10h14V10" />
+          <path d="M9 20v-6h6v6" />
+        </svg>
+      );
+    case "/create":
+      return (
+        <svg {...svgProps}>
+          <path d="M12 20h9" />
+          <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" />
+        </svg>
+      );
+    case "/me":
+      return (
+        <svg {...svgProps}>
+          <path d="M20 21a8 8 0 0 0-16 0" />
+          <circle cx="12" cy="7" r="4" />
+        </svg>
+      );
+    case "/faq":
+      return (
+        <svg {...svgProps}>
+          <path d="M9.1 9a3 3 0 1 1 5.8 1c0 2-3 2-3 4" />
+          <path d="M12 17h.01" />
+          <circle cx="12" cy="12" r="10" />
+        </svg>
+      );
+    case "/settings":
+      return (
+        <svg {...svgProps}>
+          <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+          <circle cx="12" cy="12" r="3" />
+        </svg>
+      );
+    default:
+      return null;
+  }
+}
 
 export function AppHeader() {
   const { theme, setTheme } = useTheme();
@@ -119,13 +177,16 @@ export function AppHeader() {
                   href={href}
                   prefetch
                   className={[
-                    "px-3.5 py-1.5 rounded-md text-sm",
+                    "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm",
                     navActive(href)
                       ? "text-zinc-900 dark:text-zinc-100 bg-zinc-100/70 dark:bg-white/[0.06]"
                       : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-white/[0.06]",
                     "transition-colors duration-150",
                   ].join(" ")}
                 >
+                  <span className="flex shrink-0 opacity-90" aria-hidden="true">
+                    <NavItemIcon href={href} size={16} />
+                  </span>
                   {label}
                 </Link>
               ))}
@@ -209,35 +270,7 @@ export function AppHeader() {
                   "transition-colors duration-150",
                 ].join(" ")}
               >
-                {label === "广场" ? (
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M3 10.5 12 4l9 6.5" />
-                    <path d="M5 10v10h14V10" />
-                    <path d="M9 20v-6h6v6" />
-                  </svg>
-                ) : label === "创作" ? (
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M12 20h9" />
-                    <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" />
-                  </svg>
-                ) : label === "我的" ? (
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M20 21a8 8 0 0 0-16 0" />
-                    <circle cx="12" cy="7" r="4" />
-                  </svg>
-                ) : label === "常见问题" ? (
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M9.1 9a3 3 0 1 1 5.8 1c0 2-3 2-3 4" />
-                    <path d="M12 17h.01" />
-                    <circle cx="12" cy="12" r="10" />
-                  </svg>
-                ) : (
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M12 3a3 3 0 0 0-3 3v1a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z" />
-                    <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 0 1 0 2.8 2 2 0 0 1-2.8 0l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.2a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 0 1-2.8 0 2 2 0 0 1 0-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.2a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 0 1 0-2.8 2 2 0 0 1 2.8 0l.1.1a1.7 1.7 0 0 0 1.8.3 1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.2a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 0 1 2.8 0 2 2 0 0 1 0 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8 1.7 1.7 0 0 0 1.5 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.2a1.7 1.7 0 0 0-1.4 1Z" />
-                    <circle cx="12" cy="12" r="3" />
-                  </svg>
-                )}
+                <NavItemIcon href={href} size={18} />
                 <span className="text-[11px] font-medium">{label}</span>
               </Link>
             ))}

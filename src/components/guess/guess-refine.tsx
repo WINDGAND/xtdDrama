@@ -127,19 +127,11 @@ function useTypewriter(text: string, speed = 22): string {
   return displayed;
 }
 
-/* 轴类型标签映射（id=1 史诗感 / id=2 手绘感 / id=3 胶片感） */
-const AXIS_TAG_MAP: Record<number, { label: string; emoji: string }> = {
-  1: { label: "史诗感", emoji: "🎬" },
-  2: { label: "手绘感", emoji: "✏️" },
-  3: { label: "胶片感", emoji: "📷" },
-};
-
 /* 单个风格选项行（平铺列表，无卡片边框） */
 function OptionRow({
   option, selected, isFirst, onSelect,
 }: { option: GuessOption; selected: boolean; isFirst: boolean; onSelect: () => void }) {
   const [promptExpanded, setPromptExpanded] = useState(false);
-  const axisTag = AXIS_TAG_MAP[option.id];
 
   return (
     <motion.div variants={OPTION_ROW_VARIANTS}>
@@ -174,11 +166,6 @@ function OptionRow({
             ].join(" ")}>
               {option.title}
             </span>
-            {axisTag && (
-              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-white/[0.07] text-zinc-500 dark:text-zinc-400 shrink-0">
-                {axisTag.emoji} {axisTag.label}
-              </span>
-            )}
           </div>
 
           {option.description ? (

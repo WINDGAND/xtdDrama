@@ -3,6 +3,7 @@ import { getCachedPostById } from "@/lib/cached-feeds";
 import { LikeBar } from "@/components/likes/like-bar";
 import { SmartImage } from "@/components/ui/smart-image";
 import { LiveLikeVideo } from "@/components/ui/live-like-video";
+import { MoreMenu } from "@/components/moments/more-menu";
 
 export async function PostDetailBody({ id }: { id: string }) {
   const post = await getCachedPostById(id);
@@ -50,22 +51,25 @@ export async function PostDetailBody({ id }: { id: string }) {
             alt="生成结果"
             page="post-detail"
             slot="post-image"
-            sizes="(max-width: 768px) 100vw, 900px"
-            className="h-[520px]"
-            imageClassName="object-cover"
+            sizes="(max-width: 768px) 100vw, 520px"
+            className="aspect-square w-full max-w-[520px]"
+            imageClassName="object-contain"
           />
         ) : (
           <LiveLikeVideo
             src={post.result_url}
             page="post-detail"
             slot="post-video"
-            className="h-[520px] w-full"
-            videoClassName="object-cover"
+            className="aspect-square w-full max-w-[520px]"
+            videoClassName="object-contain"
           />
         )}
       </div>
 
-      <LikeBar postId={id} />
+      <div className="mt-4 flex items-center justify-between gap-3">
+        <LikeBar postId={id} />
+        <MoreMenu postId={id} />
+      </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
         <Link
@@ -76,11 +80,11 @@ export async function PostDetailBody({ id }: { id: string }) {
           再生成一张
         </Link>
         <Link
-          href="/plaza"
+          href="/me"
           prefetch
           className="h-9 px-4 rounded-lg text-sm font-medium text-[color:var(--apple-blue)] hover:underline transition-colors flex items-center"
         >
-          返回广场
+          返回我的作品
         </Link>
       </div>
     </div>

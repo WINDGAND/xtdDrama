@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { motionDurations, motionEase, motionDistances, motionStaggers } from "@/lib/motion";
 import type { VisionAnalysis } from "@/types/vision";
@@ -128,7 +128,7 @@ function useTypewriter(text: string, speed = 22): string {
 }
 
 /* 单个风格选项行（平铺列表，无卡片边框） */
-function OptionRow({
+const OptionRow = memo(function OptionRow({
   option, selected, isFirst, onSelect,
 }: { option: GuessOption; selected: boolean; isFirst: boolean; onSelect: () => void }) {
   const [promptExpanded, setPromptExpanded] = useState(false);
@@ -195,7 +195,7 @@ function OptionRow({
       </div>
     </motion.div>
   );
-}
+});
 
 /* 主组件 */
 export function GuessRefine({ analysis, onGenerate, isGenerating = false }: GuessRefineProps) {
@@ -392,6 +392,33 @@ export function GuessRefine({ analysis, onGenerate, isGenerating = false }: Gues
   }, [fetchGuess, generateMode, isGenerating, isHintSubmitting, onGenerate, userHint]);
 
   const selectedOption = result?.options.find((o) => o.id === selectedId) ?? null;
+
+  // 稳定的 onSelect 工厂——用 Map 缓存每个 id 对应的回调，避免每次渲染生成新函数引用导致 OptionRow 无效重渲染
+  const selectHandlers = useMemo(() => {
+    const map = new Map<number, () => void>();
+    if (!result) return map;
+    for (const opt of result.options) {
+      map.set(opt.id, () => {
+        setSelectedId(opt.id);
+        emitGuessMetric("guess_option_selected", { batchIndex, optionTitle: opt.title });
+      });
+    }
+    return map;
+  // result 或 batchIndex 变化时才重建，不受其他状态影响
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result, batchIndex]);
+
+  // CTA 首次出现时滚动到可见区域（只在 selectedId 从 null → 有值时触发一次，不受重复选择干扰）
+  const prevSelectedRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (selectedId !== null && prevSelectedRef.current === null) {
+      requestAnimationFrame(() => {
+        ctaRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      });
+    }
+    prevSelectedRef.current = selectedId;
+  }, [selectedId]);
+
   const hintValid = userHint.trim().length >= 2 && userHint.trim().length <= 40;
   const showRefresh = batchIndex < MAX_BATCH && !isRefreshing;
   const showHintSuggestion = batchIndex >= MAX_BATCH && !hintOpen;
@@ -470,13 +497,7 @@ export function GuessRefine({ analysis, onGenerate, isGenerating = false }: Gues
               option={opt}
               selected={selectedId === opt.id}
               isFirst={i === 0}
-              onSelect={() => {
-                setSelectedId(opt.id);
-                emitGuessMetric("guess_option_selected", { batchIndex, optionTitle: opt.title });
-                requestAnimationFrame(() => {
-                  ctaRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-                });
-              }}
+              onSelect={selectHandlers.get(opt.id) ?? (() => {})}
             />
           ))}
         </motion.div>
@@ -548,7 +569,8 @@ export function GuessRefine({ analysis, onGenerate, isGenerating = false }: Gues
                 </button>
               </div>
 
-              <div className="relative">
+              {/* px-px：为 focus ring 留 1px 水平空间，防止被祖先 overflow-y-auto 裁切 */}
+              <div className="relative px-px">
                 <input
                   ref={hintInputRef}
                   type="text"

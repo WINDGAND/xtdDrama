@@ -1259,11 +1259,27 @@ export default function CreatePage() {
                             disabled={!canPublish}
                             title={demoMode ? "演示模式下无法发布，请上传真实图片生成后发布" : undefined}
                             className={[
-                              "h-8 px-3 rounded-lg text-xs font-medium text-white apple-btn-primary",
+                              "inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-medium text-white apple-btn-primary",
                               "disabled:opacity-60 disabled:cursor-not-allowed",
                             ].join(" ")}
                           >
-                            {publishing ? "发布中…" : demoMode ? "演示模式（不可发布）" : "发布到广场"}
+                            {publishing ? (
+                              <>
+                                <svg
+                                  className="animate-spin"
+                                  width="12" height="12"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2.5"
+                                  strokeLinecap="round"
+                                  aria-hidden="true"
+                                >
+                                  <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+                                </svg>
+                                发布中…
+                              </>
+                            ) : demoMode ? "演示模式（不可发布）" : "发布到广场"}
                           </button>
                         </div>
                       </div>
@@ -1305,11 +1321,13 @@ export default function CreatePage() {
         </AnimatePresence>
       </div>
 
-      <div className="mt-8 border-t border-zinc-100 dark:border-white/[0.06] pt-4">
-        <div className="text-sm text-zinc-500 dark:text-zinc-500 font-light italic text-center">
-          “生活的 99% 是平庸，剩下的 1% 是 Drama。”
+      {!workspaceMode ? (
+        <div className="mt-8 border-t border-zinc-100 dark:border-white/[0.06] pt-4">
+          <div className="text-sm text-zinc-500 dark:text-zinc-500 font-light italic text-center">
+            “生活的 99% 是平庸，剩下的 1% 是 Drama。”
+          </div>
         </div>
-      </div>
+      ) : null}
     </div>
   );
 }

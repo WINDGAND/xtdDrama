@@ -62,8 +62,8 @@ const EMOTION_ENUM = [
   "迷茫",
 ] as const;
 
-const MAX_MAIN_ENTITY_LEN = 36;
-const MAX_SCENE_STATE_LEN = 64;
+const MAX_MAIN_ENTITY_LEN = 60;
+const MAX_SCENE_STATE_LEN = 100;
 const DEFAULT_STYLE_HINTS = ["网络化夸张", "反差戏剧感", "梗图化表达"];
 const FALLBACK_MAIN_ENTITY = "未知场景";
 const FALLBACK_SCENE_STATE = "图像信息不足";
@@ -96,22 +96,40 @@ const SYSTEM_PROMPT = `你是一位冷静客观的场景分析 AI，代号「观
 你分析的是图片本身传递的情绪氛围，而非主观猜测拍照者的心情。情绪判断必须有画面线索支撑，不得凭空推断。
 
 ## 输出格式（严格遵守，禁止任何额外文字）
-{"imageType":"<portrait|object|food|scene|pet|other>","mainEntity":"<图像中最显著的核心主体，中文，完整短句，禁止半截词>","sceneState":"<当前物理环境的客观状态，中文，完整短句，不含主观情绪>","userEmotion":"<情绪标签，必须从枚举里选 1 个>","evidence":"<画面可见视觉线索，格式[视觉元素]+[状态]，≤20字，例如：桌面一片狼藉>","emotionCandidates":[{"label":"<枚举情绪>","score":0.0},{"label":"<枚举情绪>","score":0.0},{"label":"<枚举情绪>","score":0.0}],"styleHints":["<改写方向1>","<改写方向2>","<改写方向3>"]}
+{"imageType":"<portrait|object|food|scene|pet|other>","mainEntity":"<核心主体完整描述，10-25字，例：深夜书桌上热气腾腾的一桶泡面>","sceneState":"<物理环境与氛围，15-40字，必须与mainEntity内容不同，例：昏暗宿舍，台灯暖黄，书本凌乱，深夜寂静>","userEmotion":"<情绪标签，必须从枚举里选 1 个>","evidence":"<画面可见视觉线索，格式[视觉元素]+[状态]，≤20字，例如：桌面一片狼藉>","emotionCandidates":[{"label":"<枚举情绪>","score":0.0},{"label":"<枚举情绪>","score":0.0},{"label":"<枚举情绪>","score":0.0}],"styleHints":["<改写方向1>","<改写方向2>","<改写方向3>"]}
 
-## 字段说明
-- imageType: 画面主体类型，portrait=人像，object=物品，food=食物，scene=风景，pet=动物，other=其他
-- mainEntity: 你实际看到的核心主体，例如"堆满试卷的桌面"、"洒落在地的咖啡"、"挤满人的地铁"；必须是完整短语，不要在词中间截断
-- sceneState: 你看到的客观场景，例如"昏暗宿舍，屏幕蓝光，凌晨时分"；必须是完整短语，不含主观情绪，不要在词中间截断
-- userEmotion: 图片整体传递的情绪氛围，从以下枚举里选 1 个最贴切的：${EMOTION_ENUM.join("、")}
-- evidence: 引用支撑情绪判断的具体画面视觉元素，格式"[视觉元素]+[状态]"，例如"桌面一片狼藉"、"表情紧绷眉头皱"，禁止写物体清单或主观臆断
-- emotionCandidates: 3 个候选情绪 + 置信度（0-1），按 score 从高到低排列
-- styleHints: 3 个克制幽默、真实可分享的视觉改写方向，必须保留主体可辨认，禁止极端元素（克苏鲁/赛博朋克/末日/霓虹/恐怖/血腥）；根据 imageType 选择方向：portrait 偏漫画脸谱/画报人物，object 偏插画道具/绘本物品，food 偏美食插画/杂志感，scene 偏胶片/手账速写，pet 偏Q版/儿童绘本，other 偏漫画分镜/复古胶片
+## 字段详细说明
+
+### mainEntity（核心主体）
+- **长度：10-25 字**中文完整短句
+- 必须具体描述你看到的核心被摄物，包含：数量特征 + 状态特征 + 物体名称
+- 好的示例：「深夜书桌上热气腾腾的一桶泡面」「地铁站台边密密麻麻的等车人群」「打翻在桌面上正在蔓延的咖啡」
+- 差的示例（禁止）：「书桌」「泡面」「夜晚的书桌」——这类描述太短、太笼统，必须更具体
+
+### sceneState（场景状态）
+- **长度：15-40 字**，包含以下要素（能观察到几个写几个）：空间类型 + 光线特征 + 时间感 + 氛围细节
+- 好的示例：「昏暗宿舍，台灯暖黄光打在桌面，窗外漆黑，深夜时分，周围寂静」「雨天傍晚的堵车路段，挡风玻璃布满雨滴，车灯在湿路面反光」
+- **必须与 mainEntity 完全不同**：mainEntity 描述"是什么"，sceneState 描述"在哪里/什么环境"
+- 不含主观情绪词，不重复 mainEntity 的内容
+
+### userEmotion
+图片整体传递的情绪氛围，从以下枚举里选 1 个最贴切的：${EMOTION_ENUM.join("、")}
+
+### evidence
+引用支撑情绪判断的具体画面视觉元素，格式"[视觉元素]+[状态]"，例如"桌面一片狼藉"、"表情紧绷眉头皱"，禁止写物体清单或主观臆断
+
+### emotionCandidates
+3 个候选情绪 + 置信度（0-1），按 score 从高到低排列
+
+### styleHints
+3 个克制幽默、真实可分享的视觉改写方向，必须保留主体可辨认，禁止极端元素（克苏鲁/赛博朋克/末日/霓虹/恐怖/血腥）；根据 imageType 选择方向：portrait 偏漫画脸谱/画报人物，object 偏插画道具/绘本物品，food 偏美食插画/杂志感，scene 偏胶片/手账速写，pet 偏Q版/儿童绘本，other 偏漫画分镜/复古胶片
 
 ## 禁止事项
 - 禁止在 JSON 之外输出任何文字或解释
 - 禁止输出 Markdown 代码块（不要写 \`\`\`json）
 - 禁止使用英文（所有值必须为中文，imageType 枚举值除外）
-- 若图片无法识别，输出：{"imageType":"other","mainEntity":"未知场景","sceneState":"图像信息不足","userEmotion":"迷茫","evidence":"图像信息不足","emotionCandidates":[{"label":"迷茫","score":0.7},{"label":"好奇","score":0.2},{"label":"平静","score":0.1}],"styleHints":["漫画插画感","清新日系感","温柔胶片感"]}`;
+- **mainEntity 和 sceneState 禁止填写相同内容**；mainEntity 字数不得少于 8 字；sceneState 字数不得少于 12 字
+- 若图片无法识别，输出：{"imageType":"other","mainEntity":"画面内容难以辨认的模糊图像","sceneState":"图像过暗或过模糊，无法判断具体场景与光线","userEmotion":"迷茫","evidence":"图像信息不足","emotionCandidates":[{"label":"迷茫","score":0.7},{"label":"好奇","score":0.2},{"label":"平静","score":0.1}],"styleHints":["漫画插画感","清新日系感","温柔胶片感"]}`;
 /* ----------------------------------------------------------------
  * 工具函数
  * ---------------------------------------------------------------- */
@@ -180,17 +198,17 @@ function isNearDuplicateText(a: string, b: string): boolean {
   const x = toComparableText(a);
   const y = toComparableText(b);
   if (!x || !y) return false;
-  if (x === y) return true;
-  return x.includes(y) || y.includes(x);
+  // 只在完全相同时判定为重复，不做包含检测（避免误过滤补充了更多环境信息的场景描述）
+  return x === y;
 }
 
 function pickDistinctSceneState(mainEntity: string, candidates: string[]): string {
-  const filtered = candidates
-    .map((s) => normalizeText(s))
-    .filter(Boolean)
-    .filter((s) => !isNearDuplicateText(s, mainEntity));
-  if (!filtered.length) return "场景信息较少";
-  return smartTrim(filtered.slice(0, 2).join("；"), MAX_SCENE_STATE_LEN);
+  const normalized = candidates.map((s) => normalizeText(s)).filter(Boolean);
+  if (!normalized.length) return "场景待分析";
+  // 优先取与 mainEntity 不完全重复的候选，若全部重复则直接取第一条（总比兜底占位更有意义）
+  const distinct = normalized.filter((s) => !isNearDuplicateText(s, mainEntity));
+  const best = distinct.length ? distinct : normalized;
+  return smartTrim(best.slice(0, 2).join("；"), MAX_SCENE_STATE_LEN);
 }
 
 function normalizeEmotionToEnum(input: {
@@ -213,7 +231,14 @@ function enforceVisionBoundaries(analysis: VisionAnalysis): VisionAnalysis {
   const sceneCandidates = sceneRaw
     ? sceneRaw.split(/[；。]/).map((s) => normalizeText(s)).filter(Boolean)
     : [];
-  const sceneState = pickDistinctSceneState(mainEntity, sceneCandidates.length ? sceneCandidates : [sceneRaw]);
+  let sceneState = pickDistinctSceneState(mainEntity, sceneCandidates.length ? sceneCandidates : [sceneRaw]);
+
+  // 仅当 sceneState 与 mainEntity 完全相同（模型照搬）时才清空，让后续文本补全接手
+  // 不因字数短而清空——短但独立的场景描述也有意义
+  if (sceneState && toComparableText(sceneState) === toComparableText(mainEntity)) {
+    sceneState = "";
+  }
+
   const evidence = typeof analysis.evidence === "string" ? normalizeText(analysis.evidence) : undefined;
   const userEmotion = normalizeEmotionToEnum({
     userEmotion: analysis.userEmotion,
@@ -233,10 +258,13 @@ function enforceVisionBoundaries(analysis: VisionAnalysis): VisionAnalysis {
 
 function isUsableAnalysis(analysis: VisionAnalysis): boolean {
   const mainEntity = normalizeText(analysis.mainEntity);
-  const sceneState = normalizeText(analysis.sceneState);
-  if (!mainEntity || !sceneState) return false;
-  if (mainEntity.length < 2 || sceneState.length < 2) return false;
+  // 必须是有意义的中文描述，至少 4 字
+  if (!mainEntity || mainEntity.length < 4) return false;
   if (mainEntity === FALLBACK_MAIN_ENTITY) return false;
+  // 拒绝纯英文/数字短词（youtu-vita 偶发将 "indoor"/"outdoor"/"studio" 等作为 mainEntity）
+  if (/^[a-zA-Z0-9\s_\-,.'"]{1,20}$/.test(mainEntity)) return false;
+  // sceneState 只检查明确的「无效兜底值」，不要求非空
+  const sceneState = normalizeText(analysis.sceneState ?? "");
   if (sceneState === FALLBACK_SCENE_STATE) return false;
   return true;
 }
@@ -304,6 +332,184 @@ function mapAnalysisFromElements(input: {
       ? input.styleHints.map(String).slice(0, 3)
       : DEFAULT_STYLE_HINTS,
   };
+}
+
+/* ----------------------------------------------------------------
+ * extractAllText — 递归提取任意 JSON 结构中的所有字符串值
+ * 供 reanalyzeFromRawText 使用：不管 youtu-vita 返回什么格式，
+ * 都能把可读文字内容拼合成一段纯文本，交给 hunyuan 做结构化重组。
+ * ---------------------------------------------------------------- */
+function extractAllText(obj: unknown, depth = 0): string[] {
+  if (depth > 6) return [];
+  if (typeof obj === "string") {
+    const s = obj.trim();
+    return s.length > 1 ? [s] : [];
+  }
+  if (Array.isArray(obj)) return obj.flatMap((v) => extractAllText(v, depth + 1));
+  if (obj !== null && typeof obj === "object") {
+    return Object.values(obj as Record<string, unknown>).flatMap((v) =>
+      extractAllText(v, depth + 1)
+    );
+  }
+  return [];
+}
+
+/* ----------------------------------------------------------------
+ * reanalyzeFromRawText — 两阶段解耦的第二阶段
+ *
+ * 当 youtu-vita 返回的 JSON 格式无法被任何已知路径解析时（parsePath = "fallback"），
+ * 将其原始输出中的全部文字递归提取，拼成纯文字描述，
+ * 再交给 hunyuan 文本模型按严格 JSON schema 重新生成感知结构。
+ *
+ * 优势：
+ *  - hunyuan 是纯文本模型，对 System Prompt 的遵从率接近 100%
+ *  - 不管 youtu-vita 偶发输出 characters / setting / objects / 自由描述等任何格式，
+ *    只要文字内容足够，hunyuan 都能可靠产出 mainEntity / sceneState / userEmotion
+ *  - 仅在 fallback 时触发，不影响正常路径的响应速度
+ * ---------------------------------------------------------------- */
+const REANALYZE_SYSTEM_PROMPT = `你是图像场景分析 JSON 生成器。你会收到一段来自视觉模型对图片的描述（格式可能不规范），请根据描述内容输出严格的纯 JSON 分析，不要任何额外文字。
+
+## 输出格式
+{"imageType":"<portrait|object|food|scene|pet|other>","mainEntity":"<核心主体完整描述，10-25字>","sceneState":"<物理环境与氛围，15-40字，必须与mainEntity内容不同>","userEmotion":"<从枚举里选1个>","evidence":"<支撑情绪的视觉线索，≤20字>","emotionCandidates":[{"label":"<枚举情绪>","score":0.0},{"label":"<枚举情绪>","score":0.0},{"label":"<枚举情绪>","score":0.0}],"styleHints":["<改写方向1>","<改写方向2>","<改写方向3>"]}
+
+## 情绪枚举（必须从中选1个）
+崩溃、烦躁、尴尬、无奈、焦虑、疲惫、委屈、开心、兴奋、无聊、平静、好奇、迷茫
+
+## 要求
+- mainEntity：具体说明"看到了什么"（数量+状态+物体名称）
+- sceneState：具体说明"在哪里、什么光线、什么时间氛围"
+- 禁止输出 markdown 代码块
+- 禁止在 JSON 外输出任何内容`;
+
+async function reanalyzeFromRawText(input: {
+  requestId: string;
+  rawContent: string;
+  userNote?: string;
+}): Promise<VisionAnalysis | null> {
+  const { requestId, rawContent, userNote } = input;
+
+  // 尝试从 rawContent 中递归提取所有字符串，无论格式
+  let allText: string;
+  try {
+    const anyParsed = JSON.parse(extractJSON(rawContent));
+    const strings = extractAllText(anyParsed);
+    // 去重并过滤掉过短的片段
+    const unique = Array.from(new Set(strings)).filter((s) => s.length > 2);
+    allText = unique.join("；");
+  } catch {
+    // rawContent 本身不是 JSON，直接当作文本使用
+    allText = rawContent.trim();
+  }
+
+  if (!allText || allText.length < 10) {
+    console.error(`[vision][${requestId}] reanalyze: extracted text too short (${allText.length})`);
+    return null;
+  }
+
+  console.error(`[vision][${requestId}] reanalyze: extracted ${allText.length} chars, calling hunyuan`);
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+  const baseUrl = TOKENHUB_BASE_URL.endsWith("/")
+    ? TOKENHUB_BASE_URL.slice(0, -1)
+    : TOKENHUB_BASE_URL;
+
+  try {
+    const userMsg = [
+      "以下是视觉模型对图片的原始描述（格式不规范，请根据内容提炼并按规定 JSON 格式输出）：",
+      allText,
+      userNote?.trim() ? `用户补充说明：${userNote.trim()}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    const res = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${TOKENHUB_API_KEY}`,
+        "User-Agent": "XTDDrama/1.0",
+      },
+      body: JSON.stringify({
+        model: TOKENHUB_EMOTION_MODEL,
+        messages: [
+          { role: "system", content: REANALYZE_SYSTEM_PROMPT },
+          { role: "user", content: userMsg },
+        ],
+        temperature: 0.15,
+        max_tokens: TOKENHUB_MAX_TOKENS,
+        stream: false,
+      }),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      console.error(`[vision][${requestId}] reanalyze upstream not ok`, res.status);
+      return null;
+    }
+
+    const data = (await res.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    const content = data.choices?.[0]?.message?.content?.trim() ?? "";
+    if (!content) return null;
+
+    const jsonStr = extractJSON(content);
+    const parsed = JSON.parse(jsonStr) as Partial<VisionAnalysis>;
+
+    const mainEntity = normalizeText(parsed.mainEntity);
+    const sceneState = normalizeText(parsed.sceneState);
+    const userEmotion = normalizeText(parsed.userEmotion);
+
+    if (!mainEntity || !sceneState || !userEmotion) return null;
+
+    const normalizedEmotion = normalizeEmotionToEnum({
+      userEmotion,
+      mainEntity,
+      sceneState,
+    });
+
+    const candidates = Array.isArray(parsed.emotionCandidates)
+      ? (parsed.emotionCandidates as Array<{ label?: unknown; score?: unknown }>)
+          .map((c) => {
+            const label = typeof c.label === "string" ? c.label.trim() : "";
+            const score =
+              typeof c.score === "number"
+                ? c.score
+                : typeof c.score === "string"
+                ? Number(c.score)
+                : NaN;
+            if (!label || !Number.isFinite(score)) return null;
+            if (!EMOTION_ENUM.includes(label as (typeof EMOTION_ENUM)[number])) return null;
+            return { label, score: Math.max(0, Math.min(1, score)) };
+          })
+          .filter((v): v is { label: string; score: number } => !!v)
+          .slice(0, 3)
+      : [];
+
+    console.error(`[vision][${requestId}] reanalyze success`, { mainEntity, sceneState, userEmotion: normalizedEmotion });
+
+    return {
+      imageType: normalizeImageType(parsed.imageType),
+      mainEntity: smartTrim(mainEntity, MAX_MAIN_ENTITY_LEN),
+      sceneState: smartTrim(sceneState, MAX_SCENE_STATE_LEN),
+      userEmotion: normalizedEmotion,
+      styleHints: Array.isArray(parsed.styleHints)
+        ? parsed.styleHints.map(String).slice(0, 3)
+        : DEFAULT_STYLE_HINTS,
+      evidence: typeof parsed.evidence === "string" ? parsed.evidence.trim() : undefined,
+      emotionCandidates: candidates.length ? candidates : undefined,
+    };
+  } catch (e) {
+    if (e instanceof Error && e.name === "AbortError") {
+      console.error(`[vision][${requestId}] reanalyze timeout`);
+    } else {
+      console.error(`[vision][${requestId}] reanalyze exception`, e);
+    }
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 async function calibrateEmotionFromText(input: {
@@ -539,10 +745,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       sceneDescription?: string;
       caption?: string;
       scene?: string;
+      setting?: string;
       objects?: unknown;
       elements?: unknown;
       details?: unknown;
       evidence?: string;
+      /* youtu-vita 插画/动漫输出字段 */
+      characters?: unknown;
+      colors?: unknown;
+      mainObject?: string;
+      main_object?: string;
       emotionCandidates?: Array<{
         label?: unknown;
         score?: unknown;
@@ -629,6 +841,62 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     if (!resolved) {
+      // ── characters 路径（优先于 descLike）──────────────────────────────────
+      // 兼容 youtu-vita 对插画/动漫/人像图返回 { characters, setting, colors } 的格式。
+      // 此路径必须在 descLike 之前执行，防止 setting="indoor" 之类的单词被当作 mainEntity。
+      // 支持 youtu-vita 偶发使用的多种字段别名（role/type/name, description/desc/appearance/outfit）。
+      if (Array.isArray(parsed.characters) && (parsed.characters as unknown[]).length > 0) {
+        const chars = parsed.characters as Array<Record<string, unknown>>;
+        const mainParts = chars
+          .slice(0, 3)
+          .map((c) => {
+            // 尝试多种 name 字段别名
+            const name = [c.name, c.character_name, c.role, c.type, c.gender]
+              .find((v) => typeof v === "string" && (v as string).trim().length > 0)
+              ?.toString().trim() ?? "";
+            // 尝试多种 description 字段别名
+            const desc = [c.description, c.desc, c.appearance, c.outfit, c.details, c.info]
+              .find((v) => typeof v === "string" && (v as string).trim().length > 0)
+              ?.toString().trim() ?? "";
+            const combined = name && desc
+              ? `${name}（${smartTrim(desc, 22)}）`
+              : smartTrim(desc || name, 30);
+            return combined;
+          })
+          .filter(Boolean);
+
+        if (mainParts.length) {
+          const mainEntity = mainParts.slice(0, 2).join("与");
+          // 从 setting/colors 提取场景描述；过滤掉纯英文单词（如 "indoor"）
+          const settingRaw = typeof parsed.setting === "string" ? parsed.setting.trim() : "";
+          // 如果 setting 是纯英文短词，映射为中文或留空
+          const SETTING_MAP: Record<string, string> = {
+            indoor: "室内场景", outdoor: "户外场景", office: "办公室",
+            studio: "摄影棚", classroom: "教室", home: "家庭环境",
+          };
+          const settingNorm = SETTING_MAP[settingRaw.toLowerCase()] ?? (
+            /^[a-zA-Z\s]{1,20}$/.test(settingRaw) ? "" : settingRaw
+          );
+          const colorsRaw = Array.isArray(parsed.colors)
+            ? (parsed.colors as unknown[]).map(String).slice(0, 3).join("、")
+            : "";
+          const sceneState = settingNorm || (colorsRaw ? `以${colorsRaw}为主色调的插画背景` : "插画人物场景");
+
+          resolved = {
+            imageType: normalizeImageType(parsed.imageType ?? parsed.image_type ?? "portrait"),
+            mainEntity: smartTrim(mainEntity, MAX_MAIN_ENTITY_LEN),
+            sceneState: smartTrim(sceneState, MAX_SCENE_STATE_LEN),
+            userEmotion: "好奇",
+            styleHints: Array.isArray(parsed.styleHints)
+              ? parsed.styleHints.map(String).slice(0, 3)
+              : DEFAULT_STYLE_HINTS,
+          };
+          parsePath = "elements";
+        }
+      }
+    }
+
+    if (!resolved) {
       const descLike = (() => {
         if (typeof parsed.scene_description === "string" && parsed.scene_description.trim()) {
           return parsed.scene_description.trim();
@@ -639,12 +907,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         if (typeof parsed.caption === "string" && parsed.caption.trim()) {
           return parsed.caption.trim();
         }
+        // 注意：setting 字段不在此处理——已由上方 characters 路径或 reanalyzeFromRawText 负责，
+        // 避免 "indoor"/"outdoor" 这类单词被误当作场景描述进入 mapAnalysisFromDescription。
         // 兼容 youtu-vita 偶发输出：{ scene, objects, details }
+        // 同时纳入 main_object / mainObject 作为主体补充
         if (typeof parsed.scene === "string" && parsed.scene.trim()) {
+          const mainObj =
+            typeof parsed.mainObject === "string" ? parsed.mainObject.trim()
+            : typeof parsed.main_object === "string" ? parsed.main_object.trim()
+            : "";
           const objs = Array.isArray(parsed.objects)
             ? (parsed.objects as unknown[]).map(String).map((s) => s.trim()).filter(Boolean).slice(0, 6)
             : [];
-          const tail = objs.length ? `（物体：${objs.join("、")}）` : "";
+          const allParts = mainObj ? [mainObj, ...objs].slice(0, 6) : objs;
+          const tail = allParts.length ? `（主体：${allParts.join("、")}）` : "";
           return `${parsed.scene.trim()}${tail}`;
         }
         return "";
@@ -670,7 +946,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       });
       if (resolved) parsePath = "elements";
     }
-
     if (resolved) {
       resolved = enforceVisionBoundaries(resolved);
     }
@@ -701,6 +976,60 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   } catch (err) {
     console.error(`[vision][${requestId}] JSON 解析失败`, err);
     return errorResponse("PARSE_ERROR", `AI 返回格式异常，解析失败（请求号：${requestId}）`, 500);
+  }
+
+  // ── 两阶段解耦回退 ────────────────────────────────────────────────────────
+  // 触发条件：无论 parsePath 是什么，只要最终 analysis 不可用（isUsableAnalysis=false），
+  // 就把 youtu-vita 原始输出的所有文字交给 hunyuan 重新按 schema 生成。
+  // 覆盖场景：parsePath=fallback（完全解析失败）、以及 parsePath=scene 但 mainEntity
+  // 是单个英文词（indoor 等）这类"表面上解析成功但内容无效"的情况。
+  if (!isUsableAnalysis(analysis)) {
+    try {
+      const reanalyzed = await reanalyzeFromRawText({ requestId, rawContent, userNote });
+      if (reanalyzed && isUsableAnalysis(reanalyzed)) {
+        analysis = enforceVisionBoundaries(reanalyzed);
+        console.error(`[vision][${requestId}] reanalyze rescued: mainEntityLen=${normalizeText(analysis.mainEntity).length}`);
+      }
+    } catch {
+      // 不阻断主流程，继续使用 fallback 兜底值
+    }
+  }
+
+  // 当 sceneState 为空（模型照搬 mainEntity 或字数过短被清空）时，用文本模型补充场景描述
+  if (!analysis.sceneState?.trim()) {
+    try {
+      const baseUrl = TOKENHUB_BASE_URL.endsWith("/") ? TOKENHUB_BASE_URL.slice(0, -1) : TOKENHUB_BASE_URL;
+      const sceneCtrl = new AbortController();
+      const sceneTimer = setTimeout(() => sceneCtrl.abort(), UPSTREAM_TIMEOUT_MS);
+      const sceneRes = await fetch(`${baseUrl}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${TOKENHUB_API_KEY}`, "User-Agent": "XTDDrama/1.0" },
+        body: JSON.stringify({
+          model: TOKENHUB_EMOTION_MODEL,
+          messages: [
+            {
+              role: "system",
+              content: `你是场景描述补充助手。根据图片主实体，补充一句 15-35 字的客观环境描述（空间、光线、时间氛围），不含情绪词，不重复主实体内容。只输出描述文字，不要任何解释。`,
+            },
+            { role: "user", content: `主实体：${analysis.mainEntity}\n请补充环境场景描述：` },
+          ],
+          temperature: 0.3,
+          max_tokens: 100,
+          stream: false,
+        }),
+        signal: sceneCtrl.signal,
+      });
+      clearTimeout(sceneTimer);
+      if (sceneRes.ok) {
+        const sceneData = (await sceneRes.json()) as { choices?: Array<{ message?: { content?: string } }> };
+        const sceneText = sceneData.choices?.[0]?.message?.content?.trim() ?? "";
+        if (sceneText && sceneText.length >= 8) {
+          analysis = { ...analysis, sceneState: smartTrim(sceneText, MAX_SCENE_STATE_LEN) };
+        }
+      }
+    } catch {
+      // 不阻断主流程
+    }
   }
 
   // 当落入兜底描述路径，或候选置信度偏低时，尝试二次校准情绪（不引入手动纠错 UI）

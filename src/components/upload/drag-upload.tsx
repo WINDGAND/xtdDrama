@@ -6,7 +6,8 @@ import { BreathingLoader } from "./breathing-loader";
 import { motionDurations, motionEase } from "@/lib/motion";
 import type { VisionAnalysis, VisionResponse } from "@/types/vision";
 
-type UploadState = "idle" | "dragging" | "preview" | "sensing" | "error";
+type UploadState = "idle" | "dragging" | "preview" | "sensing" | "error" | "unsupported";
+type UnsupportedCategory = "video" | "url" | "other";
 
 interface DragUploadProps {
   onUploadSuccess?: (base64: string) => void;
@@ -19,37 +20,70 @@ interface DragUploadProps {
 
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"];
-const DEFAULT_MAX_BYTES = 10 * 1024 * 1024; // 放宽到 10MB，交给 resize 处理
-/** 上传到 Vision / Supabase 时的目标最大边长（px），保持主体清晰又降低 payload */
+const DEFAULT_MAX_BYTES = 10 * 1024 * 1024;
 const RESIZE_MAX_PX = 1280;
-/** 上传前目标 base64 size 约束（~2MB，超出则再次降质） */
 const TARGET_BASE64_CHARS = 2.5 * 1024 * 1024;
+
+// All UI text as JS constants so Unicode escapes are processed correctly
+const T = {
+  sensing:    "AI \u6B63\u5728\u5206\u6790\u4F60\u7684\u7167\u7247...",
+  optimizing: "\u6B63\u5728\u4F18\u5316\u56FE\u7247\u5927\u5C0F\u2026",
+  uploading:  "\u6B63\u5728\u4E0A\u4F20\u5E76\u5206\u6790...",
+  release:    "\u677E\u5F00\u4EE5\u4E0A\u4F20",
+  choose:     "\u9009\u62E9\u7167\u7247\u5F00\u59CB",
+  or:         "\u6216\u62D6\u62FD\u5230\u8FD9\u91CC",
+  hint:       "\u652F\u6301 JPG / PNG \u6700\u5927 10MB",
+  retry:      "\u91CD\u65B0\u9009\u62E9",
+  retryImg:   "\u91CD\u65B0\u9009\u62E9\u56FE\u7247",
+  videoTitle: "\u89C6\u9891\u573A\u666F\uFF0C\u5373\u5C06\u4E0A\u7EBF",
+  urlTitle:   "\u94FE\u63A5\u8F93\u5165\uFF0C\u5373\u5C06\u4E0A\u7EBF",
+  videoHint:  "\u5F53\u524D\u652F\u6301\u56FE\u7247\u5F00\u542F Drama \u00B7 \u622A\u4E00\u5E27\u4E0A\u4F20\u6548\u679C\u4E00\u6837\u597D",
+  urlHint:    "\u5F53\u524D\u53EF\u622A\u56FE\u4E0A\u4F20 \u00B7 \u6548\u679C\u548C\u94FE\u63A5\u4E00\u6837",
+  uploadFail: "\u4E0A\u4F20\u5904\u7406\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5",
+  ariaLabel:  "\u70B9\u51FB\u6216\u62D6\u62FD\u56FE\u7247\u81F3\u6B64\u5904\u4E0A\u4F20",
+  imgAlt:     "\u4E0A\u4F20\u7684\u56FE\u7247",
+  closeAlt:   "\u91CD\u65B0\u9009\u62E9\u56FE\u7247",
+};
+
+function detectFileCategory(file: File): UnsupportedCategory | null {
+  if (ALLOWED_TYPES.includes(file.type)) return null;
+  if (file.type.startsWith("video/") || /\.(mp4|mov|webm|avi|mkv|flv|wmv)$/i.test(file.name)) {
+    return "video";
+  }
+  return "other";
+}
 
 function validateFile(file: File, maxBytes: number): string | null {
   if (!ALLOWED_TYPES.includes(file.type)) {
-    return `仅支持 JPG / PNG / WebP 格式（当前：${file.type || "未知"}）`;
+    return `\u4EC5\u652F\u6301 JPG / PNG / WebP \u683C\u5F0F\uFF08\u5F53\u524D\uFF1A${file.type || "\u672A\u77E5"}\uFF09`;
   }
   if (file.size > maxBytes) {
     const mb = (file.size / 1024 / 1024).toFixed(1);
-    return `文件大小 ${mb} MB，超出 ${maxBytes / 1024 / 1024} MB 限制`;
+    return `\u6587\u4EF6\u5927\u5C0F ${mb} MB\uFF0C\u8D85\u51FA ${maxBytes / 1024 / 1024} MB \u9650\u5236`;
   }
   return null;
+}
+
+function detectUrlDrop(dt: DataTransfer): boolean {
+  if (dt.files.length > 0) return false;
+  for (let i = 0; i < dt.items.length; i++) {
+    const item = dt.items[i];
+    if (item.kind === "string" && (item.type === "text/uri-list" || item.type === "text/plain")) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function readAsBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result as string);
-    reader.onerror = () => reject(new Error("文件读取失败"));
+    reader.onerror = () => reject(new Error("read failed"));
     reader.readAsDataURL(file);
   });
 }
 
-/**
- * 自动缩放图片到 RESIZE_MAX_PX 以内，并以 JPEG 输出。
- * 小图直接原样返回（不放大），大图等比缩小。
- * 降低 payload 体积，加快 Vision API 响应速度，减少上传失败率。
- */
 async function resizeToBase64(raw: string): Promise<string> {
   return new Promise((resolve) => {
     const img = new Image();
@@ -70,7 +104,6 @@ async function resizeToBase64(raw: string): Promise<string> {
       const ctx = canvas.getContext("2d");
       if (!ctx) { resolve(raw); return; }
       ctx.drawImage(img, 0, 0, tw, th);
-      // 先尝试 0.88 质量，超出目标再降到 0.72
       let out = canvas.toDataURL("image/jpeg", 0.88);
       if (out.length > TARGET_BASE64_CHARS) {
         out = canvas.toDataURL("image/jpeg", 0.72);
@@ -93,11 +126,16 @@ export function DragUpload({
   const [state, setState] = useState<UploadState>("idle");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string>("");
-  const [sensingText, setSensingText] = useState("AI 正在分析你的照片...");
+  const [sensingText, setSensingText] = useState("AI ...");
+  const [unsupportedCategory, setUnsupportedCategory] = useState<UnsupportedCategory>("other");
 
   const dragCounterRef = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const mountedRef = useRef(true);
+
+  useEffect(() => {
+    setSensingText(T.sensing);
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -108,6 +146,12 @@ export function DragUpload({
   const handleFile = useCallback(
     async (file: File) => {
       setErrorMsg("");
+      const category = detectFileCategory(file);
+      if (category !== null) {
+        setUnsupportedCategory(category);
+        setState("unsupported");
+        return;
+      }
       const validationError = validateFile(file, maxBytes);
       if (validationError) {
         setState("error");
@@ -119,15 +163,13 @@ export function DragUpload({
         setPreviewUrl(objectUrl);
         setState("preview");
 
-        // 先读原始 base64（用于预览），再 resize（用于上传/分析）
         const rawBase64 = await readAsBase64(file);
-        setSensingText("正在优化图片大小…");
+        setSensingText(T.optimizing);
         const base64 = await resizeToBase64(rawBase64);
-        // 预览用 resize 后的版本（节省内存）；原始 URL 已经 setPreviewUrl
         onUploadSuccess?.(base64);
 
         setState("sensing");
-        setSensingText("正在上传并分析...");
+        setSensingText(T.uploading);
 
         const uploadTask = (async () => {
           try {
@@ -142,10 +184,10 @@ export function DragUpload({
             if (uploadData.success && uploadData.publicUrl) {
               onPublicUrlReady?.(uploadData.publicUrl);
             } else if (!uploadData.success) {
-              console.warn("[DragUpload] Supabase 上传失败：", uploadData.error);
+              console.warn("[DragUpload] Supabase upload failed:", uploadData.error);
             }
           } catch (e) {
-            console.warn("[DragUpload] Supabase 上传异常：", e);
+            console.warn("[DragUpload] Supabase upload exception:", e);
           }
         })();
 
@@ -162,7 +204,8 @@ export function DragUpload({
         const [visionResult] = await Promise.all([visionTask, uploadTask]);
 
         if (!visionResult.success) {
-          if (mountedRef.current) setSensingText(`分析失败：${visionResult.error}`);
+          const failMsg = `\u5206\u6790\u5931\u8D25\uFF1A${visionResult.error}`;
+          if (mountedRef.current) setSensingText(failMsg);
           await new Promise<void>((r) => setTimeout(r, 1500));
           if (mountedRef.current) {
             setState("error");
@@ -174,10 +217,10 @@ export function DragUpload({
         onAnalysisComplete?.(visionResult.data);
         if (mountedRef.current) setState("preview");
       } catch (err) {
-        console.error("[DragUpload] 处理异常：", err);
+        console.error("[DragUpload] exception:", err);
         if (mountedRef.current) {
           setState("error");
-          setErrorMsg("上传处理失败，请重试");
+          setErrorMsg(T.uploadFail);
         }
       }
     },
@@ -209,6 +252,11 @@ export function DragUpload({
         setState("idle");
         return;
       }
+      if (detectUrlDrop(e.dataTransfer)) {
+        setUnsupportedCategory("url");
+        setState("unsupported");
+        return;
+      }
       const file = e.dataTransfer.files[0];
       if (file) handleFile(file);
       else setState("idle");
@@ -235,7 +283,7 @@ export function DragUpload({
       onGuestAttempt?.();
       return;
     }
-    if (state === "idle" || state === "error") inputRef.current?.click();
+    if (state === "idle" || state === "error" || state === "unsupported") inputRef.current?.click();
   }, [isGuest, onGuestAttempt, state]);
 
   const handleReset = useCallback(() => {
@@ -249,7 +297,6 @@ export function DragUpload({
   const panelCls = [
     "relative w-full overflow-hidden rounded-xl",
     "border transition-all duration-150",
-    // 默认尽量贴近页面背景，减少“卡片感”
     "bg-transparent",
     state === "idle"
       ? "border-zinc-200/70 dark:border-white/[0.08] cursor-pointer hover:border-zinc-300/80 dark:hover:border-white/[0.14]"
@@ -257,15 +304,17 @@ export function DragUpload({
         ? "border-[var(--apple-blue)] border-2 bg-[oklch(0.96_0.015_250)]/60 dark:bg-[oklch(0.20_0.02_250)]/30 cursor-copy"
         : state === "error"
           ? "border-red-300 dark:border-red-800/50 cursor-pointer"
-          : "border-zinc-100/70 dark:border-white/[0.06] bg-white/60 dark:bg-white/[0.03] cursor-default",
+          : state === "unsupported"
+            ? "border-amber-300/70 dark:border-amber-700/40 cursor-pointer"
+            : "border-zinc-100/70 dark:border-white/[0.06] bg-white/60 dark:bg-white/[0.03] cursor-default",
   ].join(" ");
 
   return (
     <div className="w-full flex flex-col items-center gap-4">
       <div
         role="button"
-        tabIndex={state === "idle" || state === "error" ? 0 : -1}
-        aria-label="点击或拖拽图片至此处上传"
+        tabIndex={state === "idle" || state === "error" || state === "unsupported" ? 0 : -1}
+        aria-label={T.ariaLabel}
         onClick={handleZoneClick}
         onKeyDown={(e) => e.key === "Enter" && handleZoneClick()}
         onDragEnter={handleDragEnter}
@@ -285,7 +334,6 @@ export function DragUpload({
 
         <AnimatePresence mode="wait">
 
-          {/* idle / dragging */}
           {(state === "idle" || state === "dragging") && (
             <motion.div
               key="idle"
@@ -313,7 +361,7 @@ export function DragUpload({
               </motion.div>
               <div className="flex flex-col items-center gap-1 text-center">
                 <p className="text-sm text-zinc-600 dark:text-zinc-400">
-                  {state === "dragging" ? "松开以上传" : (
+                  {state === "dragging" ? T.release : (
                     <>
                       <span
                         className={[
@@ -325,20 +373,19 @@ export function DragUpload({
                           "shadow-sm",
                         ].join(" ")}
                       >
-                        选择照片开始
+                        {T.choose}
                       </span>
-                      <span className="ml-2 text-zinc-500 dark:text-zinc-500">或拖拽到这里</span>
+                      <span className="ml-2 text-zinc-500 dark:text-zinc-500">{T.or}</span>
                     </>
                   )}
                 </p>
                 <p className="text-[11px] text-zinc-400/80 dark:text-zinc-500">
-                  支持 JPG/PNG · ≤ 5MB
+                  {T.hint}
                 </p>
               </div>
             </motion.div>
           )}
 
-          {/* error */}
           {state === "error" && (
             <motion.div
               key="error"
@@ -368,13 +415,51 @@ export function DragUpload({
                   onClick={(e) => { e.stopPropagation(); handleReset(); }}
                   className="text-xs text-blue-500 dark:text-blue-400 hover:underline transition-colors"
                 >
-                  重新选择
+                  {T.retry}
                 </button>
               </div>
             </motion.div>
           )}
 
-          {/* preview / sensing */}
+          {state === "unsupported" && (
+            <motion.div
+              key="unsupported"
+              className="flex flex-col items-center justify-center gap-3 py-14 px-6"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+            >
+              <div className="w-9 h-9 rounded-full bg-amber-50 dark:bg-amber-950/20 flex items-center justify-center">
+                {unsupportedCategory === "video" ? (
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="text-amber-500" aria-hidden="true">
+                    <polygon points="23 7 16 12 23 17 23 7" />
+                    <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+                  </svg>
+                ) : (
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="text-amber-500" aria-hidden="true">
+                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                  </svg>
+                )}
+              </div>
+              <div className="flex flex-col items-center gap-1.5 text-center">
+                <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200">
+                  {unsupportedCategory === "video" ? T.videoTitle : T.urlTitle}
+                </p>
+                <p className="text-xs text-zinc-400 dark:text-zinc-500 leading-relaxed max-w-[200px]">
+                  {unsupportedCategory === "video" ? T.videoHint : T.urlHint}
+                </p>
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleReset(); }}
+                  className="mt-0.5 text-xs text-blue-500 dark:text-blue-400 hover:underline transition-colors"
+                >
+                  {T.retryImg}
+                </button>
+              </div>
+            </motion.div>
+          )}
+
           {(state === "preview" || state === "sensing") && previewUrl && (
             <motion.div
               key="preview"
@@ -387,7 +472,7 @@ export function DragUpload({
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={previewUrl}
-                alt="上传的图片"
+                alt={T.imgAlt}
                 className="w-full object-cover rounded-xl"
                 style={{ maxHeight: "400px", objectPosition: "center" }}
               />
@@ -418,7 +503,7 @@ export function DragUpload({
                     "text-white/80 hover:text-white hover:bg-black/40",
                     "transition-colors duration-150",
                   ].join(" ")}
-                  aria-label="重新选择图片"
+                  aria-label={T.closeAlt}
                 >
                   <svg
                     width="11" height="11" viewBox="0 0 24 24" fill="none"

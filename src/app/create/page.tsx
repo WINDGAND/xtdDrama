@@ -16,6 +16,8 @@ import type { GuessOption } from "@/types/guess";
 import { useAuth } from "@/components/providers/auth-provider";
 import { emitPipelineMetric } from "@/lib/pipeline-observability";
 import { DRAMA_WORD_GRADIENT_CLASS } from "@/lib/drama-word-style";
+import { extractEdgeMap } from "@/lib/edge-extract";
+import { MOCK_EXAMPLES, selectMockByEmotion, type MockExample } from "@/lib/mock-drama-examples";
 import ProfilePic1 from "@/../images/ProfilePic1.jpg";
 import ProfilePic2 from "@/../images/ProfilePic2.jpg";
 import ProfilePic3 from "@/../images/ProfilePic3.jpg";
@@ -233,6 +235,9 @@ export default function CreatePage() {
   const workspaceRootRef = useRef<HTMLDivElement | null>(null);
   const prevWorkspaceModeRef = useRef(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [edgeMapUrl, setEdgeMapUrl] = useState<string | null>(null);
+  const [demoMode, setDemoMode] = useState(false);
+  const [activeMock, setActiveMock] = useState<MockExample | null>(null);
   // 与顶栏 logo「Drama」同款紫粉渐变
   const dramaWordCls = useMemo(
     () => ["font-semibold", DRAMA_WORD_GRADIENT_CLASS].join(" "),
@@ -391,9 +396,14 @@ export default function CreatePage() {
     setAnalysisResult(null);
     setJob(null);
     setPublicUrl(null);
+    setEdgeMapUrl(null);
     setReferenceUploading(true);
     publicUrlReadyRef.current = false;
     emitPipelineMetric("pipeline_source_selected", { sourceType: sourceTypeRef.current });
+    // 异步提取结构骨架，不阻断主流程
+    extractEdgeMap(base64, { threshold: 40, scale: 0.5, lineOpacity: 0.75 })
+      .then((url) => setEdgeMapUrl(url))
+      .catch(() => void 0);
   }, []);
 
   const resetWorkspace = useCallback(() => {
@@ -402,6 +412,9 @@ export default function CreatePage() {
     setAnalysisResult(null);
     setJob(null);
     setPublicUrl(null);
+    setEdgeMapUrl(null);
+    setDemoMode(false);
+    setActiveMock(null);
     setReferenceUploading(false);
     sourceTypeRef.current = "image";
     publicUrlReadyRef.current = false;
@@ -463,8 +476,22 @@ export default function CreatePage() {
         }
       })();
 
-      const [analysis] = await Promise.all([analyzeWithVision({ imageBase64: base64 }), uploadTask]);
-      handleAnalysisComplete(analysis);
+      try {
+        const [analysis] = await Promise.all([analyzeWithVision({ imageBase64: base64 }), uploadTask]);
+        handleAnalysisComplete(analysis);
+      } catch (visionErr) {
+        console.warn("[CreatePage] Vision 分析失败，切换演示模式：", visionErr);
+        const mock = selectMockByEmotion();
+        setDemoMode(true);
+        setActiveMock(mock);
+        // 用 mock 的 analysis 填充感知层，让 GuessRefine 正常渲染
+        handleAnalysisComplete(mock.analysis as VisionAnalysis);
+        showToast("AI 感知服务繁忙", {
+          description: "已切换演示模式，展示预置示例效果",
+          tone: "info",
+          durationMs: 4000,
+        });
+      }
     } catch (e) {
       console.error("[CreatePage] 重新选择处理异常：", e);
       showToast("重新选择失败", { description: "请稍后重试", tone: "error", durationMs: 3800 });
@@ -556,10 +583,18 @@ export default function CreatePage() {
       lastGenerateRef.current = { option, mode };
       generateStartedAtRef.current = Date.now();
 
+      // 结构锚定语言：基于 Vision 分析的空间信息，加强 ControlNet-Lite 约束
+      const structuralAnchor = [
+        analysisResult.mainEntity ? `subject: ${analysisResult.mainEntity},` : "",
+        analysisResult.sceneState ? `scene: ${analysisResult.sceneState},` : "",
+        "exact spatial position and scale of subject preserved, no repositioning, no scaling, no cropping subject.",
+      ].filter(Boolean).join(" ");
+
       const prompt = [
         `${analysisResult.mainEntity}，情绪：${analysisResult.userEmotion}。`,
+        structuralAnchor,
         option.prompt,
-        "preserve original subject and composition, keep subject recognizable, avoid neon glow, avoid cyberpunk style, keep natural visual tone",
+        "preserve original subject and composition, keep subject clearly recognizable, avoid cyberpunk neon, avoid horror elements, avoid blood or violence, avoid dark gothic atmosphere",
       ].join(" ");
 
       const submitPath = mode === "image" ? "/api/image/submit" : "/api/video/submit";
@@ -611,7 +646,23 @@ export default function CreatePage() {
           mode,
           reason: errMsg,
         });
-        setJob((j) => j ? { ...j, status: "failed", error: errMsg } : j);
+        // 生成 API 失败：自动切换演示模式，展示预置示例
+        console.warn("[CreatePage] 生成 API 失败，切换演示模式：", errMsg);
+        const mock = selectMockByEmotion(analysisResult?.userEmotion);
+        setDemoMode(true);
+        setActiveMock(mock);
+        setJob({
+          mode: mock.mode,
+          style: mock.style,
+          jobId: "demo",
+          status: "completed",
+          resultUrl: mock.resultSrc,
+        });
+        showToast("AI 生图服务繁忙", {
+          description: "已切换演示模式，展示预置示例效果",
+          tone: "info",
+          durationMs: 4000,
+        });
       }
     },
     [analysisResult, publicUrl, referenceUploading, pollJob, showToast]
@@ -705,7 +756,7 @@ export default function CreatePage() {
     }
   }, [analysisResult, job, publishing, router, showToast]);
 
-  const canPublish = !!job?.resultUrl && job?.status === "completed" && !publishing;
+  const canPublish = !!job?.resultUrl && job?.status === "completed" && !publishing && !demoMode;
   const analysisLine = useMemo(() => {
     if (!analysisResult) return "";
     return `${analysisResult.mainEntity} · ${analysisResult.sceneState} · ${analysisResult.userEmotion}`;
@@ -965,6 +1016,28 @@ export default function CreatePage() {
             className="grid grid-cols-1 lg:grid-cols-[minmax(0,0.95fr)_minmax(360px,0.75fr)] gap-8 items-start min-h-[calc(100vh-9rem)]"
           >
             <section className="min-w-0 border-t border-zinc-100 dark:border-white/[0.06] pt-5">
+              {/* 演示模式横幅 */}
+              {demoMode && (
+                <motion.div
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                  className="mb-4 flex items-start gap-2.5 rounded-lg border border-amber-200/70 dark:border-amber-700/30 bg-amber-50/60 dark:bg-amber-950/10 px-3 py-2.5"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0 text-amber-500" aria-hidden="true">
+                    <circle cx="12" cy="12" r="10" /><line x1="12" x2="12" y1="8" y2="12" /><line x1="12" x2="12.01" y1="16" y2="16" />
+                  </svg>
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
+                      演示模式
+                      {activeMock && <span className="ml-1.5 font-normal text-amber-600/80 dark:text-amber-500/70">· {activeMock.label}</span>}
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-amber-600/80 dark:text-amber-500/60 leading-relaxed">
+                      AI 服务暂时繁忙，当前展示预置示例效果 · 实际生成以真实上传图片为准
+                    </p>
+                  </div>
+                </motion.div>
+              )}
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <div className="text-[11px] font-mono uppercase tracking-widest text-zinc-500 dark:text-zinc-500">
@@ -1005,6 +1078,29 @@ export default function CreatePage() {
                   <div className="absolute left-3 top-3 z-10 rounded-md border border-zinc-200/70 dark:border-white/[0.08] bg-white/85 dark:bg-[oklch(0.16_0.004_265)]/85 px-2 py-1 text-[11px] font-mono uppercase tracking-widest text-zinc-500 dark:text-zinc-500">
                     原图
                   </div>
+                  {/* 结构骨架缩略图 + 结构锁定 badge：仅在 edgeMapUrl 就绪且分析完成后显示 */}
+                  {edgeMapUrl && analysisResult && (
+                    <div
+                      aria-label="结构骨架已提取，生成时将锁定空间结构"
+                      title="结构骨架已锁定"
+                      className="absolute right-3 bottom-3 z-10 flex flex-col items-end gap-1"
+                    >
+                      <div className="rounded-md border border-blue-300/50 dark:border-blue-500/30 overflow-hidden shadow-sm"
+                        style={{ width: 72, height: 54 }}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={edgeMapUrl}
+                          alt="结构骨架"
+                          className="w-full h-full object-cover"
+                          style={{ background: "oklch(0.96 0.01 250)" }}
+                        />
+                      </div>
+                      <span className="text-[10px] font-mono text-blue-500 dark:text-blue-400 bg-white/80 dark:bg-black/40 px-1.5 py-0.5 rounded backdrop-blur-sm">
+                        结构锁定
+                      </span>
+                    </div>
+                  )}
                   {/* 扫描线：仅在 Vision 分析进行时（有图但还没分析结果）显示 */}
                   {uploadedPreviewUrl && !analysisResult && !job && (
                     <div
@@ -1236,12 +1332,13 @@ export default function CreatePage() {
                             type="button"
                             onClick={handlePublish}
                             disabled={!canPublish}
+                            title={demoMode ? "演示模式下无法发布，请上传真实图片生成后发布" : undefined}
                             className={[
                               "h-8 px-3 rounded-lg text-xs font-medium text-white apple-btn-primary",
                               "disabled:opacity-60 disabled:cursor-not-allowed",
                             ].join(" ")}
                           >
-                            {publishing ? "发布中…" : "发布到广场"}
+                            {publishing ? "发布中…" : demoMode ? "演示模式（不可发布）" : "发布到广场"}
                           </button>
                         </div>
                       </div>

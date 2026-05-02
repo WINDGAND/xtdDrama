@@ -8,6 +8,10 @@
  * 图生视频：请求体可传 `images: ["公网 HTTPS URL"]`（与前端一致）；本路由会映射为
  * TokenHub/混元要求的 `image: { url }`，勿把 `images` 数组原样转发上游（会 400 Invalid param）。
  *
+ * 速度优化参数（可通过环境变量配置）：
+ *   TOKENHUB_VIDEO_RESOLUTION  生成分辨率（默认 "540p"，降低可显著加快生成）
+ *   TOKENHUB_VIDEO_LENGTH      帧数（默认 33，约 1.3 秒 @24fps；原始默认值为 121 帧）
+ *
  * 返回：{ success: true, data: { id, status, ... } }
  */
 
@@ -21,6 +25,10 @@ import type {
 } from "@/types/video";
 
 const DEFAULT_MODEL = process.env.TOKENHUB_VIDEO_MODEL ?? "hy-video-1.5";
+// Live 图只需 1-2 秒，33 帧 @24fps ≈ 1.3s；原始默认值为 121 帧（5 秒），大幅减帧可显著缩短生成时间
+const VIDEO_LENGTH = Number(process.env.TOKENHUB_VIDEO_LENGTH ?? "33");
+// 540p 相比默认 720p 减少约 40% 计算量，Live 图小尺寸够用
+const VIDEO_RESOLUTION = process.env.TOKENHUB_VIDEO_RESOLUTION ?? "540p";
 
 /** 混元生视频 Prompt 上限约 200 字（UTF-8 字符计），超长会触发上游 Invalid param */
 function clipPromptForHunyuanVideo(prompt: string, maxChars: number): string {
@@ -60,6 +68,9 @@ export async function POST(req: NextRequest) {
     const upstreamBody: Record<string, unknown> = {
       model,
       prompt: safePrompt,
+      // 速度优化：限制帧数与分辨率，避免生成远超 Live 图所需的长视频
+      resolution: VIDEO_RESOLUTION,
+      video_length: VIDEO_LENGTH,
     };
     if (firstImageUrl) {
       upstreamBody.image = { url: firstImageUrl };

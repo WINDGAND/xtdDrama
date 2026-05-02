@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import dynamic from "next/dynamic";
 import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -819,8 +819,8 @@ export default function CreatePage() {
               </p>
               <div className="mt-4">
                 <HeroCompare
-                  inputSrc="/compare/a0.png"
-                  outputSrc="/compare/a1.png"
+                  inputSrc="/compare/b0.png"
+                  outputSrc="/compare/b1.png"
                   inputLabel="原图"
                   outputLabel="对比图"
                 />
@@ -855,11 +855,11 @@ export default function CreatePage() {
               <div className="mt-4 border-t border-zinc-100 dark:border-white/[0.06] pt-4">
                 {(
                   [
-                    { name: "Emma", time: "刚刚", msg: "“这张也太有戏了…我先笑为敬。”", src: (ProfilePic1 as unknown as { src: string }).src ?? String(ProfilePic1) },
-                    { name: "Liam", time: "1 分钟前", msg: "“我宣布这就是今天的最佳梗图。”", src: (ProfilePic2 as unknown as { src: string }).src ?? String(ProfilePic2) },
-                    { name: "Olivia", time: "2 分钟前", msg: "“别停，发到广场，我给你顶上去。”", src: (ProfilePic3 as unknown as { src: string }).src ?? String(ProfilePic3) },
-                    { name: "Noah", time: "6 分钟前", msg: "“太真实了，隔着屏幕都能闻到焦虑味。”", src: (ProfilePic4 as unknown as { src: string }).src ?? String(ProfilePic4) },
-                    { name: "Sophia", time: "9 分钟前", msg: "“氛围感拉满，但又不油，刚刚好。”", src: (ProfilePic5 as unknown as { src: string }).src ?? String(ProfilePic5) },
+                    { name: "Emma", time: "刚刚", msg: "“大厨从蒸汽里出来了，我愣了三秒。”", src: (ProfilePic1 as unknown as { src: string }).src ?? String(ProfilePic1) },
+                    { name: "Liam", time: "1 分钟前", msg: "“深夜书桌的氛围给拿捏死了，太懂我。”", src: (ProfilePic2 as unknown as { src: string }).src ?? String(ProfilePic2) },
+                    { name: "Olivia", time: "2 分钟前", msg: "“发朋友圈了，配文：今晚的泡面有点贵。”", src: (ProfilePic3 as unknown as { src: string }).src ?? String(ProfilePic3) },
+                    { name: "Noah", time: "5 分钟前", msg: "“大厨是透明的这个细节，克制得刚好。”", src: (ProfilePic4 as unknown as { src: string }).src ?? String(ProfilePic4) },
+                    { name: "Sophia", time: "8 分钟前", msg: "“隔着屏幕都能闻到面香，绷不住了。”", src: (ProfilePic5 as unknown as { src: string }).src ?? String(ProfilePic5) },
                   ] as Array<{ name: string; time: string; msg: string; src: string }>
                 ).map((x, idx) => (
                   <div key={x.name} className={[
@@ -903,7 +903,11 @@ export default function CreatePage() {
                   { k: "03", t: "生成", d: "结构尽量贴原图，只把材质与氛围戏剧化。" },
                   { k: "04", t: "发布", d: "发到广场后，NPC 5 秒内捧场评论，不让你空等。" },
                 ].map((x, idx) => (
-                  <div key={x.k} className={["py-3", idx === 0 ? "" : "border-t border-zinc-100 dark:border-white/[0.06]"].join(" ")}>
+                  <div key={x.k} className={[
+                    "py-3 px-2 -mx-2 rounded-lg transition-colors",
+                    "hover:bg-zinc-50 dark:hover:bg-white/[0.04]",
+                    idx === 0 ? "" : "border-t border-zinc-100 dark:border-white/[0.06]",
+                  ].join(" ")}>
                     <div className="flex items-start gap-3">
                       <span className="text-[11px] font-mono text-zinc-500 dark:text-zinc-500 mt-0.5">{x.k}</span>
                       <div className="min-w-0">

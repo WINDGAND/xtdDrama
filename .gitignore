@@ -40,3 +40,13 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# LaTeX 编译产物（doc/）
+/doc/*.aux
+/doc/*.log
+/doc/*.out
+/doc/*.toc
+/doc/*.synctex.gz
+/doc/*.fdb_latexmk
+/doc/*.fls
+/doc/*.pdf

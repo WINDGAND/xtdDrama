@@ -65,13 +65,24 @@ export async function POST(req: NextRequest) {
       upstreamBody.image = { url: firstImageUrl };
     }
 
-    const upstream = await tokenHubPost<VideoSubmitResponse>({
+    const upstream = await tokenHubPost<Record<string, unknown>>({
       path: "/v1/api/video/submit",
       body: upstreamBody,
     });
 
+    // 上游业务错误：HTTP 200 但返回体没有任务 id（常见于参数校验失败、配额超限等）
+    if (!upstream?.id) {
+      const upstreamMsg =
+        (upstream as { message?: string; msg?: string; error?: string })?.message ??
+        (upstream as { message?: string; msg?: string; error?: string })?.msg ??
+        (upstream as { message?: string; msg?: string; error?: string })?.error ??
+        JSON.stringify(upstream).slice(0, 200);
+      console.error("[video/submit] 上游未返回 id，原始响应：", JSON.stringify(upstream).slice(0, 400));
+      return fail("UPSTREAM_ERROR", `视频生成服务拒绝请求：${upstreamMsg}`, 502);
+    }
+
     return NextResponse.json<VideoApiResponse<VideoSubmitResponse>>(
-      { success: true, data: upstream },
+      { success: true, data: upstream as unknown as VideoSubmitResponse },
       { status: 200 }
     );
   } catch (err: unknown) {
@@ -82,6 +93,7 @@ export async function POST(req: NextRequest) {
     const msg = e?.message ?? "提交视频任务失败";
     const status = e?.status ?? 502;
     const code: VideoApiFail["code"] = status === 504 ? "TIMEOUT" : "UPSTREAM_ERROR";
+    console.error("[video/submit] 请求异常：", msg, "status:", status);
     return fail(code, msg, status);
   }
 }

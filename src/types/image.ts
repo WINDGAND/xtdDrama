@@ -14,6 +14,13 @@ export interface ImageSubmitBody {
    * 文档要求为「可公网访问的图片地址」
    */
   images?: string[];
+  /**
+   * 输出分辨率（TokenHub HY-Image / 图生图 ResultConfig）
+   * - 格式：`"宽:高"`，例如 `1280:720`、`1024:1024`
+   * - 图生图可传 `origin`：与输入参考图一致（长边最高约 2000，超出将等比缩小）
+   * 切勿使用单独的 width/height 数字字段，上游不会按该方式解析。
+   */
+  resolution?: string;
 }
 
 export interface ImageSubmitResponse {

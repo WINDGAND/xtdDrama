@@ -17,7 +17,7 @@ import { useAuth } from "@/components/providers/auth-provider";
 import { emitPipelineMetric } from "@/lib/pipeline-observability";
 import { DRAMA_WORD_GRADIENT_CLASS } from "@/lib/drama-word-style";
 import { extractEdgeMap } from "@/lib/edge-extract";
-import { MOCK_EXAMPLES, selectMockByEmotion, type MockExample } from "@/lib/mock-drama-examples";
+import { selectMockByEmotion, type MockExample } from "@/lib/mock-drama-examples";
 import ProfilePic1 from "@/../images/ProfilePic1.jpg";
 import ProfilePic2 from "@/../images/ProfilePic2.jpg";
 import ProfilePic3 from "@/../images/ProfilePic3.jpg";
@@ -142,6 +142,41 @@ function readFileAsDataUrl(file: File): Promise<string> {
   });
 }
 
+/** 从 base64 Data URL 中读取图片的自然宽高（像素） */
+function getImageNaturalSize(dataUrl: string): Promise<{ w: number; h: number }> {
+  return new Promise((resolve, reject) => {
+    const img = new window.Image();
+    img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+    img.onerror = () => reject(new Error("尺寸读取失败"));
+    img.src = dataUrl;
+  });
+}
+
+/**
+ * 将原图宽高比对齐到 Hunyuan 常用档位后，产出 TokenHub 要求的 Resolution 字符串 `"宽:高"`。
+ * （勿传单独的 width/height 数字字段；与参考图长宽比不一致时上游易按默认画布裁切。）
+ */
+function snapToHunyuanResolutionString(w: number, h: number): string {
+  const ratio = w / h;
+  const presets = [
+    { width: 1024, height: 1024, r: 1 },
+    { width: 768, height: 1024, r: 3 / 4 },
+    { width: 1024, height: 768, r: 4 / 3 },
+    { width: 720, height: 1280, r: 9 / 16 },
+    { width: 1280, height: 720, r: 16 / 9 },
+  ];
+  let best = presets[0];
+  let bestDiff = Math.abs(Math.log(ratio / best.r));
+  for (const p of presets) {
+    const diff = Math.abs(Math.log(ratio / p.r));
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      best = p;
+    }
+  }
+  return `${best.width}:${best.height}`;
+}
+
 function usePrefersReducedMotion(): boolean {
   const [reduced, setReduced] = useState(false);
   useEffect(() => {
@@ -232,6 +267,7 @@ export default function CreatePage() {
   const prevWorkspaceModeRef = useRef(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [edgeMapUrl, setEdgeMapUrl] = useState<string | null>(null);
+  const [sourceImageSize, setSourceImageSize] = useState<{ w: number; h: number } | null>(null);
   const [demoMode, setDemoMode] = useState(false);
   const [activeMock, setActiveMock] = useState<MockExample | null>(null);
   // 与顶栏 logo「Drama」同款紫粉渐变
@@ -370,9 +406,13 @@ export default function CreatePage() {
     setJob(null);
     setPublicUrl(null);
     setEdgeMapUrl(null);
+    setSourceImageSize(null);
     setReferenceUploading(true);
     publicUrlReadyRef.current = false;
     emitPipelineMetric("pipeline_source_selected", { sourceType: sourceTypeRef.current });
+    getImageNaturalSize(base64)
+      .then((size) => setSourceImageSize(size))
+      .catch(() => void 0);
     // 异步提取结构骨架，不阻断主流程
     extractEdgeMap(base64, { threshold: 40, scale: 0.5, lineOpacity: 0.75 })
       .then((url) => setEdgeMapUrl(url))
@@ -386,6 +426,7 @@ export default function CreatePage() {
     setJob(null);
     setPublicUrl(null);
     setEdgeMapUrl(null);
+    setSourceImageSize(null);
     setDemoMode(false);
     setActiveMock(null);
     setReferenceUploading(false);
@@ -556,8 +597,8 @@ export default function CreatePage() {
       lastGenerateRef.current = { option, mode };
       generateStartedAtRef.current = Date.now();
 
-      // option.prompt 为中文叙事体，已包含「（请严格锁定原图的…）」锚定指令及 Drama 改造描述，直接使用
-      const prompt = option.prompt;
+      // 图片使用完整融合提示词；Live 图优先使用短提示词，避免视频接口 200 字保护裁掉关键约束。
+      const prompt = mode === "video" ? (option.videoPrompt ?? option.prompt) : option.prompt;
 
       const submitPath = mode === "image" ? "/api/image/submit" : "/api/video/submit";
       const submitModel = mode === "image" ? "hy-image-v3.0" : "hy-video-1.5";
@@ -571,6 +612,13 @@ export default function CreatePage() {
 
       try {
         const body: Record<string, unknown> = { prompt, model: submitModel, images: [publicUrl] };
+        if (mode === "image") {
+          const r =
+            sourceImageSize != null
+              ? snapToHunyuanResolutionString(sourceImageSize.w, sourceImageSize.h)
+              : "origin";
+          body.resolution = r;
+        }
 
         const res = await fetch(submitPath, {
           method: "POST",
@@ -626,7 +674,7 @@ export default function CreatePage() {
         });
       }
     },
-    [analysisResult, publicUrl, referenceUploading, pollJob, showToast]
+    [analysisResult, publicUrl, referenceUploading, pollJob, showToast, sourceImageSize]
   );
 
   const retryLastGenerate = useCallback(() => {
@@ -718,11 +766,6 @@ export default function CreatePage() {
   }, [analysisResult, job, publishing, router, showToast]);
 
   const canPublish = !!job?.resultUrl && job?.status === "completed" && !publishing && !demoMode;
-  const analysisLine = useMemo(() => {
-    if (!analysisResult) return "";
-    return `${analysisResult.mainEntity} · ${analysisResult.sceneState} · ${analysisResult.userEmotion}`;
-  }, [analysisResult]);
-
   const requestCreateLogin = useCallback(() => {
     requestLogin("登录以使用全部功能~");
   }, []);

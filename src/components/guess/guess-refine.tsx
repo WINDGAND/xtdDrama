@@ -174,10 +174,7 @@ const OptionRow = memo(function OptionRow({
             </p>
           ) : null}
 
-          <div
-            onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => e.stopPropagation()}
-          >
+          <div>
             <button
               type="button"
               onClick={() => setPromptExpanded((v) => !v)}

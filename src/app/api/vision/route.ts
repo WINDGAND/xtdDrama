@@ -917,7 +917,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             : typeof parsed.main_object === "string" ? parsed.main_object.trim()
             : "";
           const objs = Array.isArray(parsed.objects)
-            ? (parsed.objects as unknown[]).map(String).map((s) => s.trim()).filter(Boolean).slice(0, 6)
+            ? (parsed.objects as unknown[])
+                .map((item) => {
+                  if (typeof item === "string") return item.trim();
+                  if (typeof item === "object" && item !== null) {
+                    const o = item as Record<string, unknown>;
+                    const v = o.name ?? o.label ?? o.description ?? o.text ?? o.caption ?? o.title;
+                    return typeof v === "string" ? v.trim() : "";
+                  }
+                  return "";
+                })
+                .filter(Boolean)
+                .slice(0, 6)
             : [];
           const allParts = mainObj ? [mainObj, ...objs].slice(0, 6) : objs;
           const tail = allParts.length ? `（主体：${allParts.join("、")}）` : "";

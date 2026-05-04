@@ -24,8 +24,13 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { extractJSON } from "@/lib/extract-json";
-import { tokenHubChatCompletionsUrl } from "@/lib/tokenhub";
+import { tokenHubChatCompletionsUrl, tokenHubMaasChatCompletionsUrl } from "@/lib/tokenhub";
 import { randomUUID } from "crypto";
+
+/* ----------------------------------------------------------------
+ * Vision 路由使用「通用 Token Plan（MaaS）」凭证，因为 youtu-vita
+ * 只在旧端点（tokenhub.tencentmaas.com）上可用，与 Hy Plan 文本端点分离。
+ * ---------------------------------------------------------------- */
 import type {
   VisionRequestBody,
   VisionAnalysis,
@@ -35,10 +40,11 @@ import type {
 
 /* ----------------------------------------------------------------
  * 环境变量
+ * 视觉模型使用 MaaS 凭证；文本兜底仍使用 Hy Plan 主凭证。
  * ---------------------------------------------------------------- */
-const TOKENHUB_API_KEY = process.env.TOKENHUB_API_KEY ?? "";
-const TOKENHUB_BASE_URL =
-  process.env.TOKENHUB_BASE_URL ?? "https://tokenhub.tencentmaas.com";
+const TOKENHUB_MAAS_API_KEY =
+  process.env.TOKENHUB_MAAS_API_KEY || process.env.TOKENHUB_API_KEY || "";
+const TOKENHUB_TEXT_API_KEY = process.env.TOKENHUB_API_KEY ?? "";
 /** youtu-vita — TokenHub 上唯一经验证支持图片输入的多模态模型 */
 const TOKENHUB_VITA_MODEL =
   process.env.TOKENHUB_VITA_MODEL ?? "youtu-vita";
@@ -425,7 +431,7 @@ async function reanalyzeFromRawText(input: {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${TOKENHUB_API_KEY}`,
+        Authorization: `Bearer ${TOKENHUB_TEXT_API_KEY}`,
         "User-Agent": "XTDDrama/1.0",
       },
       body: JSON.stringify({
@@ -531,7 +537,7 @@ async function calibrateEmotionFromText(input: {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${TOKENHUB_API_KEY}`,
+        Authorization: `Bearer ${TOKENHUB_TEXT_API_KEY}`,
         "User-Agent": "XTDDrama/1.0",
       },
       body: JSON.stringify({
@@ -590,8 +596,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const requestId = randomUUID().slice(0, 8);
 
   /* 1. 环境变量检查 */
-  if (!TOKENHUB_API_KEY) {
-    console.error(`[vision][${requestId}] TOKENHUB_API_KEY 未配置`);
+  if (!TOKENHUB_MAAS_API_KEY) {
+    console.error(`[vision][${requestId}] TOKENHUB_MAAS_API_KEY 未配置`);
     return errorResponse("API_KEY_MISSING", "服务配置异常，API Key 未设置", 500);
   }
 
@@ -656,11 +662,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
 
-    const upstreamRes = await fetch(tokenHubChatCompletionsUrl(), {
+    const upstreamRes = await fetch(tokenHubMaasChatCompletionsUrl(), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${TOKENHUB_API_KEY}`,
+        Authorization: `Bearer ${TOKENHUB_MAAS_API_KEY}`,
         "User-Agent": "XTDDrama/1.0",
       },
       body: JSON.stringify(requestPayload),
@@ -979,7 +985,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   } catch (err) {
     console.error(`[vision][${requestId}] JSON 解析失败`, err);
-    return errorResponse("PARSE_ERROR", `AI 返回格式异常，解析失败（请求号：${requestId}）`, 500);
+    // 不因视觉模型偶发自由文本/截断输出而中断主链路，交给后续文本兜底重整。
+    analysis = {
+      imageType: "other",
+      mainEntity: smartTrim(rawContent || "视觉模型返回了非标准描述", MAX_MAIN_ENTITY_LEN),
+      sceneState: "视觉模型返回格式不标准，需文本模型补全场景",
+      userEmotion: "好奇",
+      evidence: "模型输出需重整",
+      styleHints: DEFAULT_STYLE_HINTS,
+    };
+    parsePath = "fallback";
   }
 
   // ── 两阶段解耦回退 ────────────────────────────────────────────────────────
@@ -1006,7 +1021,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       const sceneTimer = setTimeout(() => sceneCtrl.abort(), UPSTREAM_TIMEOUT_MS);
       const sceneRes = await fetch(tokenHubChatCompletionsUrl(), {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${TOKENHUB_API_KEY}`, "User-Agent": "XTDDrama/1.0" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${TOKENHUB_TEXT_API_KEY}`, "User-Agent": "XTDDrama/1.0" },
         body: JSON.stringify({
           model: TOKENHUB_EMOTION_MODEL,
           messages: [

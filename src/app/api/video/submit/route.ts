@@ -12,7 +12,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { tokenHubPost, requireTokenHubKey, type TokenHubError } from "@/lib/tokenhub";
+import { tokenHubMaasPost, type TokenHubError } from "@/lib/tokenhub";
 import type {
   VideoApiFail,
   VideoApiResponse,
@@ -35,8 +35,6 @@ function fail(code: VideoApiFail["code"], error: string, status: number) {
 
 export async function POST(req: NextRequest) {
   try {
-    requireTokenHubKey();
-
     const body = (await req.json()) as Partial<VideoSubmitBody>;
     const prompt = body.prompt?.trim();
     const model = (body.model ?? DEFAULT_MODEL).trim();
@@ -65,7 +63,7 @@ export async function POST(req: NextRequest) {
       upstreamBody.image = { url: firstImageUrl };
     }
 
-    const upstream = await tokenHubPost<Record<string, unknown>>({
+    const upstream = await tokenHubMaasPost<Record<string, unknown>>({
       path: "/v1/api/video/submit",
       body: upstreamBody,
     });
@@ -86,7 +84,7 @@ export async function POST(req: NextRequest) {
       { status: 200 }
     );
   } catch (err: unknown) {
-    if (err instanceof Error && err.message.includes("TOKENHUB_API_KEY")) {
+    if (err instanceof Error && err.message.includes("API_KEY")) {
       return fail("API_KEY_MISSING", "服务配置异常，API Key 未设置", 500);
     }
     const e = err as TokenHubError;

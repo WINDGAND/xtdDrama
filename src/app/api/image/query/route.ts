@@ -8,7 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { tokenHubPost, requireTokenHubKey, type TokenHubError } from "@/lib/tokenhub";
+import { tokenHubMaasPost, type TokenHubError } from "@/lib/tokenhub";
 import type { ApiFail, ApiResponse, ImageQueryBody, ImageQueryResponse } from "@/types/image";
 
 const DEFAULT_MODEL = process.env.TOKENHUB_IMAGE_MODEL ?? "hy-image-v3.0";
@@ -23,8 +23,6 @@ function fail(
 
 export async function POST(req: NextRequest) {
   try {
-    requireTokenHubKey();
-
     const body = (await req.json()) as Partial<ImageQueryBody>;
     const id = body.id?.trim();
     const model = (body.model ?? DEFAULT_MODEL).trim();
@@ -33,7 +31,7 @@ export async function POST(req: NextRequest) {
       return fail("INVALID_INPUT", "缺少 id", 400);
     }
 
-    const upstream = await tokenHubPost<ImageQueryResponse>({
+    const upstream = await tokenHubMaasPost<ImageQueryResponse>({
       path: "/v1/api/image/query",
       body: { model, id },
     });
@@ -43,7 +41,7 @@ export async function POST(req: NextRequest) {
       { status: 200 }
     );
   } catch (err: unknown) {
-    if (err instanceof Error && err.message.includes("TOKENHUB_API_KEY")) {
+    if (err instanceof Error && err.message.includes("API_KEY")) {
       return fail("API_KEY_MISSING", "服务配置异常，API Key 未设置", 500);
     }
     const e = err as TokenHubError;

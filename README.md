@@ -83,7 +83,10 @@ npm run dev
 
 | 变量 | 说明 |
 |------|------|
-| `TOKENHUB_API_KEY` | TokenHub Bearer 密钥；用于 vision / guess / 生图 / 视频 / NPC 文本等所有上游调用 |
+| `TOKENHUB_API_KEY` | **HY Token Plan** Bearer 密钥；用于 Guess / NPC / Vision 文本兜底等纯文本 `chat/completions` |
+| `TOKENHUB_BASE_URL` | HY Token Plan Base URL，例如 `https://api.lkeap.cloud.tencent.com/plan/v3` |
+| `TOKENHUB_MAAS_API_KEY` | **通用 Token Plan / MaaS** Bearer 密钥；用于 `youtu-vita` 视觉、`hy-image` 生图、`hy-video` 生视频 |
+| `TOKENHUB_MAAS_BASE_URL` | 通用 Token Plan / MaaS Base URL，例如 `https://tokenhub.tencentmaas.com` |
 | `SUPABASE_URL` | Supabase 项目根 URL（**不要**带 `/rest/v1`；服务端会规范化） |
 | `SUPABASE_SERVICE_ROLE_KEY` | 服务端 Supabase 密钥（Storage 上传、帖子写入、NPC 数据等） |
 | `NEXT_PUBLIC_SUPABASE_URL` | 与控制台一致的 Project URL（浏览器与 cookie 会话） |
@@ -93,10 +96,9 @@ npm run dev
 
 | 变量 | 默认或说明 |
 |------|------------|
-| `TOKENHUB_BASE_URL` | `https://tokenhub.tencentmaas.com` |
 | `TOKENHUB_TIMEOUT_MS` | `30000` |
 | `TOKENHUB_VITA_MODEL` | `youtu-vita`（`/api/vision` 多模态主模型） |
-| `TOKENHUB_GUESS_MODEL` | `hunyuan-2.0-instruct-20251111`（Guess、部分兜底与 NPC 的默认文本模型） |
+| `TOKENHUB_GUESS_MODEL` | `hy3-preview`（HY Token Plan 个人版文本模型；Guess 与部分兜底使用） |
 | `TOKENHUB_EMOTION_MODEL` | 未设置时回退为 `TOKENHUB_GUESS_MODEL`（Vision 内情绪校准、场景补全等） |
 | `TOKENHUB_NPC_MODEL` | 未设置时回退为 `TOKENHUB_GUESS_MODEL`（NPC 评论/AI 回复） |
 | `TOKENHUB_MAX_TOKENS` | `900`（Vision 请求） |
@@ -156,7 +158,8 @@ npm run dev
 
 ## 部署提示
 
-- 适用于 **Vercel** 等 Serverless 托管：将上述环境变量配置到托管平台；**切勿**将 `SUPABASE_SERVICE_ROLE_KEY` 或 `TOKENHUB_API_KEY` 以前缀 `NEXT_PUBLIC_` 暴露到浏览器。
+- 适用于 **Vercel** 等 Serverless 托管：将上述环境变量配置到托管平台；**切勿**将 `SUPABASE_SERVICE_ROLE_KEY`、`TOKENHUB_API_KEY` 或 `TOKENHUB_MAAS_API_KEY` 以前缀 `NEXT_PUBLIC_` 暴露到浏览器。
+- 若刚修改 `.env.local` 或 Vercel 环境变量，必须重启本地 `next dev` 或重新部署，否则服务端进程仍会使用旧 Key / 旧 Base URL。
 - `metadataBase` 与部分 SEO 配置在 [`src/app/layout.tsx`](./src/app/layout.tsx) 中写死为示例域名，上线时请改为你的正式域名。
 - 生产构建：`npm run build`。
 

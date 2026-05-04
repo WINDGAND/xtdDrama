@@ -33,17 +33,40 @@ const TOKENHUB_TIMEOUT_MS = Number(process.env.TOKENHUB_TIMEOUT_MS ?? "30000");
 const RETRY_DELAYS_MS = [500, 1000] as const;
 
 /**
- * OpenAI 兼容 Chat Completions 的完整 URL。
+ * 通用 Token Plan（MaaS）的凭证：支持 youtu-vita / hy-image / hy-video。
+ * 若未单独配置，回退到主凭证（兼容只有一套 Key 的场景）。
+ */
+const TOKENHUB_MAAS_API_KEY =
+  process.env.TOKENHUB_MAAS_API_KEY || process.env.TOKENHUB_API_KEY || "";
+const TOKENHUB_MAAS_BASE_URL =
+  (process.env.TOKENHUB_MAAS_BASE_URL || process.env.TOKENHUB_BASE_URL || "https://tokenhub.tencentmaas.com")
+    .replace(/\/$/, "");
+
+/**
+ * 文本模型（Hy Plan）的 Chat Completions 完整 URL。
+ * - Hy Token Plan（lkeap 域名）：`{BASE}/chat/completions`
  * - 旧 TokenHub：`{BASE}/v1/chat/completions`
- * - Hy Token Plan（官方 Base 含 `.../plan/v3`）：`{BASE}/chat/completions`
  */
 export function tokenHubChatCompletionsUrl(): string {
   const raw = (process.env.TOKENHUB_BASE_URL ?? "https://tokenhub.tencentmaas.com").trim();
   const b = raw.endsWith("/") ? raw.slice(0, -1) : raw;
-  const lower = b.toLowerCase();
-  const isHyPlan = lower.includes("lkeap.cloud.tencent.com") || /\/plan\/v\d+$/i.test(b);
-  const path = isHyPlan ? "/chat/completions" : "/v1/chat/completions";
-  return `${b}${path}`;
+  const isHyPlan = b.toLowerCase().includes("lkeap.cloud.tencent.com") || /\/plan\/v\d+$/i.test(b);
+  return `${b}${isHyPlan ? "/chat/completions" : "/v1/chat/completions"}`;
+}
+
+/**
+ * MaaS（通用 Token Plan）的 Chat Completions 完整 URL，用于视觉模型。
+ * youtu-vita 走旧 tokenhub.tencentmaas.com 端点（/v1/chat/completions）。
+ */
+export function tokenHubMaasChatCompletionsUrl(): string {
+  const raw = (
+    process.env.TOKENHUB_MAAS_BASE_URL ||
+    process.env.TOKENHUB_BASE_URL ||
+    "https://tokenhub.tencentmaas.com"
+  ).trim();
+  const b = raw.endsWith("/") ? raw.slice(0, -1) : raw;
+  const isHyPlan = b.toLowerCase().includes("lkeap.cloud.tencent.com") || /\/plan\/v\d+$/i.test(b);
+  return `${b}${isHyPlan ? "/chat/completions" : "/v1/chat/completions"}`;
 }
 
 function createError(message: string, status?: number, payload?: unknown): TokenHubError {
@@ -144,6 +167,70 @@ export async function tokenHubPost<T>(options: TokenHubFetchOptions): Promise<T>
   }
 
   throw lastErr ?? createError("TokenHub 请求失败", 502);
+}
+
+/**
+ * 调用通用 Token Plan（MaaS）JSON API。
+ * 用于 youtu-vita 视觉、hy-image 生图、hy-video 生视频等非文本生成接口。
+ * Key/URL 读 TOKENHUB_MAAS_* 系列，回退到主凭证。
+ */
+export async function tokenHubMaasPost<T>(options: TokenHubFetchOptions): Promise<T> {
+  if (!TOKENHUB_MAAS_API_KEY) {
+    throw createError("TOKENHUB_MAAS_API_KEY（或 TOKENHUB_API_KEY）未配置", 500);
+  }
+
+  const shouldRetryOnError = options.retry !== false;
+  let lastErr: TokenHubError | null = null;
+
+  for (let attempt = 0; attempt <= 1; attempt++) {
+    if (attempt > 0) {
+      if (!shouldRetryOnError || !lastErr || !shouldRetry(lastErr.status ?? 0)) break;
+      await sleep(RETRY_DELAYS_MS[Math.min(attempt - 1, RETRY_DELAYS_MS.length - 1)]);
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), TOKENHUB_TIMEOUT_MS);
+
+    try {
+      const res = await fetch(`${TOKENHUB_MAAS_BASE_URL}${options.path}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${TOKENHUB_MAAS_API_KEY}`,
+          "User-Agent": "XTDDrama/1.0",
+        },
+        body: JSON.stringify(options.body),
+        signal: controller.signal,
+      });
+
+      const rawText = await res.text();
+      let payload: unknown = rawText;
+      try { payload = rawText ? JSON.parse(rawText) : {}; } catch { /* keep as text */ }
+
+      if (!res.ok) {
+        const snippet = typeof rawText === "string" ? rawText.slice(0, 300) : "";
+        const err = createError(
+          res.status === 429
+            ? `TokenHub MaaS 请求频率超限（${res.status}）`
+            : `TokenHub MaaS 上游异常（${res.status}）: ${snippet}`,
+          res.status, payload
+        );
+        lastErr = err;
+        continue;
+      }
+      return payload as T;
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === "AbortError") {
+        throw createError("TokenHub MaaS 请求超时", 504);
+      }
+      if (err instanceof Error) throw err as TokenHubError;
+      throw createError("TokenHub MaaS 请求失败", 502);
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  throw lastErr ?? createError("TokenHub MaaS 请求失败", 502);
 }
 
 /**

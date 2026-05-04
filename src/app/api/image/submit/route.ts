@@ -4,13 +4,13 @@
  * 前端 -> 本路由 -> TokenHub /v1/api/image/submit
  *
  * 说明：
- *  - 使用 process.env.TOKENHUB_API_KEY 进行 Bearer 鉴权
+ *  - 使用 TOKENHUB_MAAS_API_KEY（未配置时回退 TOKENHUB_API_KEY）进行 Bearer 鉴权
  *  - 请求体允许 prompt（必填）、model（可选）、images（可选参考图 URL 列表）、resolution（可选；如 origin 或「宽:高」）
  *  - 校验上游返回体必须含 id，否则将上游业务错误透传给前端，避免前端只能显示「提交失败」
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { tokenHubPost, requireTokenHubKey, type TokenHubError } from "@/lib/tokenhub";
+import { tokenHubMaasPost, type TokenHubError } from "@/lib/tokenhub";
 import type { ApiFail, ApiResponse, ImageSubmitBody, ImageSubmitResponse } from "@/types/image";
 
 const DEFAULT_MODEL = process.env.TOKENHUB_IMAGE_MODEL ?? "hy-image-v3.0";
@@ -25,9 +25,6 @@ function fail(
 
 export async function POST(req: NextRequest) {
   try {
-    // env guard
-    requireTokenHubKey();
-
     const body = (await req.json()) as Partial<ImageSubmitBody>;
     const prompt = body.prompt?.trim();
     const model = (body.model ?? DEFAULT_MODEL).trim();
@@ -48,7 +45,7 @@ export async function POST(req: NextRequest) {
         ? "origin"
         : "1024:1024";
 
-    const upstream = await tokenHubPost<Record<string, unknown>>({
+    const upstream = await tokenHubMaasPost<Record<string, unknown>>({
       path: "/v1/api/image/submit",
       body: {
         model,
@@ -76,7 +73,7 @@ export async function POST(req: NextRequest) {
       { status: 200 }
     );
   } catch (err: unknown) {
-    if (err instanceof Error && err.message.includes("TOKENHUB_API_KEY")) {
+    if (err instanceof Error && err.message.includes("API_KEY")) {
       return fail("API_KEY_MISSING", "服务配置异常，API Key 未设置", 500);
     }
     const e = err as TokenHubError;

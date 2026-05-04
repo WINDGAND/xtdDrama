@@ -21,7 +21,7 @@ export interface VisionRequestBody {
   userNote?: string;
   /**
    * 可选：临时指定本次请求使用的模型名（仅用于调试/探测）
-   * 若不传，则使用服务端环境变量 TOKENHUB_VISION_MODEL
+   * 若不传，则使用服务端环境变量 TOKENHUB_VITA_MODEL
    */
   model?: string;
 }

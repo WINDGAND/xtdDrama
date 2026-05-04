@@ -40,6 +40,12 @@ export const metadata: Metadata = {
   keywords: ["AI", "视觉互动", "表情包", "情绪重构", "小题大作", "Drama"],
   authors: [{ name: "wiND" }],
   creator: "小题大Drama",
+  /* 标签页 / 书签 / 主屏图标：与 `images/logo.png` 同源，经 public 静态路径提供 */
+  icons: {
+    icon: [{ url: "/logo.png", type: "image/png" }],
+    shortcut: "/logo.png",
+    apple: [{ url: "/logo.png", type: "image/png" }],
+  },
   /* 确保移动端 viewport 正确，增强 App 沉浸感 */
   metadataBase: new URL("https://drama-fyer-demo.vercel.app"),
 };

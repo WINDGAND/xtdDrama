@@ -327,12 +327,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   // sceneState 为空时用 mainEntity 兜底，避免因 Vision 异步补充失败而中断链路
-  if (!analysis.sceneState?.trim()) {
-    analysis = {
-      ...analysis,
-      sceneState: `包含${analysis.mainEntity}的日常场景`,
-    };
-  }
+  const normalizedAnalysis = !analysis.sceneState?.trim()
+    ? { ...analysis, sceneState: `包含${analysis.mainEntity}的日常场景` }
+    : analysis;
 
   // userHint 长度校验
   const cleanHint = userHint?.trim() ?? "";
@@ -350,8 +347,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       mode,
       hasUserHint: !!cleanHint,
       excludeCount: exclude.length,
-      mainEntityLen: analysis.mainEntity.trim().length,
-      userEmotion: analysis.userEmotion.trim().slice(0, 12),
+      mainEntityLen: normalizedAnalysis.mainEntity.trim().length,
+      userEmotion: normalizedAnalysis.userEmotion.trim().slice(0, 12),
     })
   );
 
@@ -389,12 +386,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const userContent = [
     "以下是用户当前场景的感知数据（JSON），请严格按照 System Prompt 格式输出纯 JSON，不要任何额外文字：",
     JSON.stringify({
-      mainEntity: analysis.mainEntity,
-      sceneState: analysis.sceneState,
-      userEmotion: analysis.userEmotion,
-      evidence: analysis.evidence ?? "",
-      imageType: analysis.imageType ?? "other",
-      ...(analysis.styleHints?.length ? { styleHints: analysis.styleHints } : {}),
+      mainEntity: normalizedAnalysis.mainEntity,
+      sceneState: normalizedAnalysis.sceneState,
+      userEmotion: normalizedAnalysis.userEmotion,
+      evidence: normalizedAnalysis.evidence ?? "",
+      imageType: normalizedAnalysis.imageType ?? "other",
+      ...(normalizedAnalysis.styleHints?.length ? { styleHints: normalizedAnalysis.styleHints } : {}),
     }),
   ].join("\n\n");
 

@@ -318,13 +318,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   if (
     !analysis?.mainEntity?.trim() ||
-    !analysis?.sceneState?.trim() ||
     !analysis?.userEmotion?.trim()
   ) {
     return errorResponse(
       "INVALID_INPUT",
       "缺少 analysis 字段（mainEntity / sceneState / userEmotion）"
     );
+  }
+
+  // sceneState 为空时用 mainEntity 兜底，避免因 Vision 异步补充失败而中断链路
+  if (!analysis.sceneState?.trim()) {
+    analysis = {
+      ...analysis,
+      sceneState: `包含${analysis.mainEntity}的日常场景`,
+    };
   }
 
   // userHint 长度校验

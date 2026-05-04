@@ -1073,7 +1073,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // 不阻断主流程
   }
 
-  /* 7. 返回结果 */
+  /* 7. 最终兜底：确保 sceneState 永远非空，防止 guess 路由校验拒绝 */
+  if (!analysis.sceneState?.trim()) {
+    analysis = {
+      ...analysis,
+      sceneState: analysis.mainEntity
+        ? `包含${analysis.mainEntity}的日常场景`
+        : "普通日常场景",
+    };
+  }
+
+  /* 8. 返回结果 */
   const response: VisionSuccessResponse = {
     success: true,
     data: analysis,

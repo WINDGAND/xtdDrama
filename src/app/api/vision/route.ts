@@ -24,6 +24,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { extractJSON } from "@/lib/extract-json";
+import { tokenHubChatCompletionsUrl } from "@/lib/tokenhub";
 import { randomUUID } from "crypto";
 import type {
   VisionRequestBody,
@@ -410,9 +411,6 @@ async function reanalyzeFromRawText(input: {
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
-  const baseUrl = TOKENHUB_BASE_URL.endsWith("/")
-    ? TOKENHUB_BASE_URL.slice(0, -1)
-    : TOKENHUB_BASE_URL;
 
   try {
     const userMsg = [
@@ -423,7 +421,7 @@ async function reanalyzeFromRawText(input: {
       .filter(Boolean)
       .join("\n\n");
 
-    const res = await fetch(`${baseUrl}/v1/chat/completions`, {
+    const res = await fetch(tokenHubChatCompletionsUrl(), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -521,7 +519,6 @@ async function calibrateEmotionFromText(input: {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
   try {
-    const baseUrl = TOKENHUB_BASE_URL.endsWith("/") ? TOKENHUB_BASE_URL.slice(0, -1) : TOKENHUB_BASE_URL;
     const sys = `你是情绪判别器。根据场景描述，输出严格 JSON，不要任何多余文字。\n\n## 情绪枚举\n${EMOTION_ENUM.join("、")}\n\n## 输出格式\n{"userEmotion":"<枚举之一>","score":0.0,"reason":"<一句话证据，≤28字>"}\n\n## 要求\n- 必须选择一个最贴切的情绪\n- 置信度 score 为 0-1\n- reason 必须引用描述线索，不要物体清单`;
 
     const user = [
@@ -530,7 +527,7 @@ async function calibrateEmotionFromText(input: {
       userNote?.trim() ? `用户补充：${userNote.trim()}` : "",
     ].filter(Boolean).join("\n\n");
 
-    const res = await fetch(`${baseUrl}/v1/chat/completions`, {
+    const res = await fetch(tokenHubChatCompletionsUrl(), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -659,11 +656,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
 
-    const baseUrl = TOKENHUB_BASE_URL.endsWith("/")
-      ? TOKENHUB_BASE_URL.slice(0, -1)
-      : TOKENHUB_BASE_URL;
-
-    const upstreamRes = await fetch(`${baseUrl}/v1/chat/completions`, {
+    const upstreamRes = await fetch(tokenHubChatCompletionsUrl(), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1009,10 +1002,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // 当 sceneState 为空（模型照搬 mainEntity 或字数过短被清空）时，用文本模型补充场景描述
   if (!analysis.sceneState?.trim()) {
     try {
-      const baseUrl = TOKENHUB_BASE_URL.endsWith("/") ? TOKENHUB_BASE_URL.slice(0, -1) : TOKENHUB_BASE_URL;
       const sceneCtrl = new AbortController();
       const sceneTimer = setTimeout(() => sceneCtrl.abort(), UPSTREAM_TIMEOUT_MS);
-      const sceneRes = await fetch(`${baseUrl}/v1/chat/completions`, {
+      const sceneRes = await fetch(tokenHubChatCompletionsUrl(), {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${TOKENHUB_API_KEY}`, "User-Agent": "XTDDrama/1.0" },
         body: JSON.stringify({

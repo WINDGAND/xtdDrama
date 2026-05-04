@@ -11,10 +11,9 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { tokenHubChatCompletionsUrl } from "@/lib/tokenhub";
 
 const TOKENHUB_API_KEY = process.env.TOKENHUB_API_KEY ?? "";
-const TOKENHUB_BASE_URL =
-  process.env.TOKENHUB_BASE_URL ?? "https://tokenhub.tencentmaas.com";
 
 const TIMEOUT_MS = Number(process.env.TOKENHUB_TIMEOUT_MS ?? "30000");
 
@@ -35,15 +34,11 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const baseUrl = TOKENHUB_BASE_URL.endsWith("/")
-    ? TOKENHUB_BASE_URL.slice(0, -1)
-    : TOKENHUB_BASE_URL;
-
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
   try {
-    const res = await fetch(`${baseUrl}/v1/chat/completions`, {
+    const res = await fetch(tokenHubChatCompletionsUrl(), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

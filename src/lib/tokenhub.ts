@@ -32,6 +32,20 @@ const TOKENHUB_BASE_URL = process.env.TOKENHUB_BASE_URL ?? "https://tokenhub.ten
 const TOKENHUB_TIMEOUT_MS = Number(process.env.TOKENHUB_TIMEOUT_MS ?? "30000");
 const RETRY_DELAYS_MS = [500, 1000] as const;
 
+/**
+ * OpenAI 兼容 Chat Completions 的完整 URL。
+ * - 旧 TokenHub：`{BASE}/v1/chat/completions`
+ * - Hy Token Plan（官方 Base 含 `.../plan/v3`）：`{BASE}/chat/completions`
+ */
+export function tokenHubChatCompletionsUrl(): string {
+  const raw = (process.env.TOKENHUB_BASE_URL ?? "https://tokenhub.tencentmaas.com").trim();
+  const b = raw.endsWith("/") ? raw.slice(0, -1) : raw;
+  const lower = b.toLowerCase();
+  const isHyPlan = lower.includes("lkeap.cloud.tencent.com") || /\/plan\/v\d+$/i.test(b);
+  const path = isHyPlan ? "/chat/completions" : "/v1/chat/completions";
+  return `${b}${path}`;
+}
+
 function createError(message: string, status?: number, payload?: unknown): TokenHubError {
   const err = new Error(message) as TokenHubError;
   err.status = status;

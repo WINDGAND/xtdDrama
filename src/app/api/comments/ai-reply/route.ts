@@ -3,9 +3,9 @@ import { extractJSON } from "@/lib/extract-json";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { fail, ok } from "@/lib/api-response";
 import { NPC_V2 } from "@/lib/npc/npc-v2";
+import { tokenHubChatCompletionsUrl } from "@/lib/tokenhub";
 
 const TOKENHUB_API_KEY = process.env.TOKENHUB_API_KEY ?? "";
-const TOKENHUB_BASE_URL = process.env.TOKENHUB_BASE_URL ?? "https://tokenhub.tencentmaas.com";
 const TOKENHUB_NPC_MODEL =
   process.env.TOKENHUB_NPC_MODEL ?? process.env.TOKENHUB_GUESS_MODEL ?? "hunyuan-2.0-instruct-20251111";
 const UPSTREAM_TIMEOUT_MS = Number(process.env.TOKENHUB_TIMEOUT_MS ?? "30000");
@@ -90,9 +90,8 @@ export async function POST(req: NextRequest) {
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
-    const baseUrl = TOKENHUB_BASE_URL.endsWith("/") ? TOKENHUB_BASE_URL.slice(0, -1) : TOKENHUB_BASE_URL;
 
-    const upstreamRes = await fetch(`${baseUrl}/v1/chat/completions`, {
+    const upstreamRes = await fetch(tokenHubChatCompletionsUrl(), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

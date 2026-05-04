@@ -200,7 +200,7 @@ export function GuessRefine({ analysis, onGenerate, isGenerating = false }: Gues
   const [result, setResult] = useState<GuessResult | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [generateMode, setGenerateMode] = useState<"image" | "video">("image");
+  const [selectedMode, setSelectedMode] = useState<"image" | "video">("image");
   const abortRef = useRef<AbortController | null>(null);
   const ctaRef = useRef<HTMLDivElement | null>(null);
   const typedReply = useTypewriter(result?.reply ?? "", 22);
@@ -378,7 +378,7 @@ export function GuessRefine({ analysis, onGenerate, isGenerating = false }: Gues
       });
       const singleOption = directResult.options[0];
       if (singleOption) {
-        onGenerate(singleOption, generateMode);
+        onGenerate(singleOption, selectedMode);
         setHintOpen(false);
       }
     } catch (err: unknown) {
@@ -386,7 +386,7 @@ export function GuessRefine({ analysis, onGenerate, isGenerating = false }: Gues
     } finally {
       setIsHintSubmitting(false);
     }
-  }, [fetchGuess, generateMode, isGenerating, isHintSubmitting, onGenerate, userHint]);
+  }, [fetchGuess, selectedMode, isGenerating, isHintSubmitting, onGenerate, userHint]);
 
   const selectedOption = result?.options.find((o) => o.id === selectedId) ?? null;
 
@@ -652,10 +652,10 @@ export function GuessRefine({ analysis, onGenerate, isGenerating = false }: Gues
                     key={m}
                     type="button"
                     disabled={isGenerating}
-                    onClick={() => setGenerateMode(m)}
+                    onClick={() => setSelectedMode(m)}
                     className={[
                       "flex-1 py-1.5 rounded-md text-xs font-medium transition-all duration-150",
-                      generateMode === m
+                      selectedMode === m
                         ? "bg-white dark:bg-[oklch(0.22_0.004_265)] text-zinc-900 dark:text-zinc-100 shadow-sm"
                         : "text-zinc-500 dark:text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-400",
                       isGenerating ? "opacity-50 cursor-not-allowed" : "",
@@ -666,12 +666,21 @@ export function GuessRefine({ analysis, onGenerate, isGenerating = false }: Gues
                 ))}
               </div>
 
+              {/* 预计用时说明（未生成时显示） */}
+              {!isGenerating && (
+                <p className="text-center text-[11px] text-zinc-400 dark:text-zinc-500">
+                  {selectedMode === "image"
+                    ? "图片约 10 秒 · 生成期间可继续浏览"
+                    : "Live 图约 2 分钟 · 生成期间可继续浏览"}
+                </p>
+              )}
+
               {/* 主按钮 */}
               <motion.button
                 type="button"
                 whileTap={isGenerating ? undefined : { scale: 0.98 }}
                 disabled={isGenerating}
-                onClick={() => !isGenerating && onGenerate(selectedOption, generateMode)}
+                onClick={() => !isGenerating && onGenerate(selectedOption, selectedMode)}
                 className={[
                   "w-full py-3 rounded-lg",
                   "text-sm font-semibold text-white",
@@ -700,6 +709,9 @@ export function GuessRefine({ analysis, onGenerate, isGenerating = false }: Gues
                       `}</style>
                     </span>
                     正在 Drama 中…
+                    <span className="text-white/60 font-normal text-xs">
+                      {selectedMode === "image" ? "约 10 秒" : "约 2 分钟"}
+                    </span>
                   </span>
                 ) : (
                   <>
@@ -710,6 +722,7 @@ export function GuessRefine({ analysis, onGenerate, isGenerating = false }: Gues
                   </>
                 )}
               </motion.button>
+
             </motion.div>
           )}
         </AnimatePresence>

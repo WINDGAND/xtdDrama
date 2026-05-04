@@ -299,6 +299,7 @@ export default function CreatePage() {
   const workspaceMode = !!uploadedPreviewUrl;
   const completedResultUrl = job?.status === "completed" && job.resultUrl ? job.resultUrl : null;
   const resultPending = job?.status === "submitting" || job?.status === "polling";
+
   const clearToast = useCallback(() => setToast(null), []);
 
   const showToast = useCallback(
@@ -598,7 +599,17 @@ export default function CreatePage() {
       generateStartedAtRef.current = Date.now();
 
       // 图片使用完整融合提示词；Live 图优先使用短提示词，避免视频接口 200 字保护裁掉关键约束。
-      const prompt = mode === "video" ? (option.videoPrompt ?? option.prompt) : option.prompt;
+      let prompt = mode === "video" ? (option.videoPrompt ?? option.prompt) : option.prompt;
+
+      // HunyuanVideo 默认以横屏（16:9）输出；若原图为竖版，需在 prompt 前注入方向关键词，
+      // 否则画面会被旋转为横屏。API 层目前无独立方向参数，只能通过 prompt 引导。
+      if (mode === "video" && sourceImageSize) {
+        const isPortrait = sourceImageSize.h > sourceImageSize.w;
+        const orientPrefix = isPortrait ? "竖屏视频，竖向构图，" : "横屏视频，横向构图，";
+        const maxCharsAfterPrefix = 200 - [...orientPrefix].length;
+        const trimmed = [...prompt].slice(0, maxCharsAfterPrefix).join("");
+        prompt = orientPrefix + trimmed;
+      }
 
       const submitPath = mode === "image" ? "/api/image/submit" : "/api/video/submit";
       const submitModel = mode === "image" ? "hy-image-v3.0" : "hy-video-1.5";
@@ -1178,8 +1189,11 @@ export default function CreatePage() {
                         />
                       )
                     ) : resultPending ? (
-                      <div className="flex h-full w-full flex-col items-center justify-center px-4">
+                      <div className="flex h-full w-full flex-col items-center justify-center px-4 gap-3">
                         <DramaGeneratingLoader status={job!.status as "submitting" | "polling"} />
+                        <p className="text-[11px] text-zinc-400 dark:text-zinc-500">
+                          {job!.mode === "image" ? "图片预计约 10 秒" : "Live 图预计约 2 分钟，请耐心等候"}
+                        </p>
                       </div>
                     ) : job?.status === "failed" ? (
                       <div className="text-sm text-zinc-500 dark:text-zinc-500">
@@ -1359,6 +1373,7 @@ export default function CreatePage() {
                         }
                       />
                     )}
+
                   </div>
                 )}
               </div>

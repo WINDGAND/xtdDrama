@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { PlazaFeedSkeleton } from "./plaza-feed-skeleton";
 import { PlazaFeed } from "./plaza-feed";
+import { PlazaPublishedNotice } from "./plaza-published-notice";
 
 export default function PlazaPage() {
   return (
@@ -24,6 +25,9 @@ export default function PlazaPage() {
 
         <Suspense fallback={<PlazaFeedSkeleton />}>
           <PlazaFeed />
+        </Suspense>
+        <Suspense fallback={null}>
+          <PlazaPublishedNotice />
         </Suspense>
       </div>
     </div>

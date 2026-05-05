@@ -725,6 +725,11 @@ export default function CreatePage() {
     if (!job?.resultUrl) return;
     if (publishing) return;
     setPublishing(true);
+    showToast("正在发布到广场", {
+      description: "正在保存作品，完成后会自动跳转。",
+      tone: "info",
+      durationMs: 6000,
+    });
     try {
       const res = await fetch("/api/posts/create", {
         method: "POST",
@@ -750,47 +755,12 @@ export default function CreatePage() {
         // ignore
       }
 
-      // 触发 NPC 互动（并发，等待结果以便给出准确提示）
-      const triggerInteraction = async (path: string) => {
-        const controller = new AbortController();
-        const tid = setTimeout(() => controller.abort(), 4000);
-        try {
-          const r = await fetch(path, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ postId: data.id }),
-            signal: controller.signal,
-          });
-          const payload = (await r.json().catch(() => null)) as { success?: boolean } | null;
-          return r.ok && !!payload?.success;
-        } finally {
-          clearTimeout(tid);
-        }
-      };
-
-      const [likesOk, commentsOk] = await Promise.allSettled([
-        triggerInteraction("/api/likes/npc-generate"),
-        triggerInteraction("/api/comments/generate"),
-      ]);
-      const interactionReady =
-        likesOk.status === "fulfilled" && likesOk.value &&
-        commentsOk.status === "fulfilled" && commentsOk.value;
-
       emitPipelineMetric("pipeline_publish_success", {
         sourceType: sourceTypeRef.current,
         mode: job.mode,
       });
 
-      if (interactionReady) {
-        showToast("已发布", { description: "已同步到广场，NPC 即将到场互动", tone: "success" });
-      } else {
-        showToast("已发布", {
-          description: "内容已上广场，互动生成稍有延迟，可稍后刷新查看。",
-          tone: "info",
-          durationMs: 4200,
-        });
-      }
-      router.push("/plaza");
+      router.push(`/plaza?published=${encodeURIComponent(data.id)}`);
     } catch (e) {
       emitPipelineMetric("pipeline_publish_failed", {
         sourceType: sourceTypeRef.current,

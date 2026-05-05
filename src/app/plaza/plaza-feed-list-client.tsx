@@ -172,19 +172,27 @@ function MomentsCard({ post, isFirst }: { post: PlazaPostRow; isFirst: boolean }
 }
 
 export function PlazaFeedListClient({ initialPosts }: { initialPosts: PlazaPostRow[] }) {
-  const [posts, setPosts] = useState<PlazaPostRow[]>(initialPosts);
+  const [deletedPostIds, setDeletedPostIds] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
     const onDeleted = (e: Event) => {
       const detail = (e as CustomEvent<{ postId?: string }>).detail;
       const postId = detail?.postId;
       if (!postId) return;
-      setPosts((prev) => prev.filter((p) => p.id !== postId));
+      setDeletedPostIds((prev) => {
+        const next = new Set(prev);
+        next.add(postId);
+        return next;
+      });
     };
     window.addEventListener("xtdDrama:post-deleted", onDeleted as EventListener);
     return () => window.removeEventListener("xtdDrama:post-deleted", onDeleted as EventListener);
   }, []);
 
+  const posts = useMemo(
+    () => initialPosts.filter((post) => !deletedPostIds.has(post.id)),
+    [deletedPostIds, initialPosts]
+  );
   const hasPosts = useMemo(() => posts.length > 0, [posts.length]);
   if (!hasPosts) {
     return (

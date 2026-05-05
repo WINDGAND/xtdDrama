@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { getCachedPlazaPosts } from "@/lib/cached-feeds";
 import { PlazaFeedListClient } from "./plaza-feed-list-client";
 

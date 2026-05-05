@@ -255,6 +255,7 @@ export default function CreatePage() {
   const [toast, setToast] = useState<null | { title: string; description?: string; tone?: "success" | "error" | "info"; durationMs?: number }>(null);
   const [publishing, setPublishing] = useState(false);
   const [referenceUploading, setReferenceUploading] = useState(false);
+  const [referenceUploadError, setReferenceUploadError] = useState<string | null>(null);
   const prefersReducedMotion = usePrefersReducedMotion();
   const authed = authStatus === "loading" ? null : authStatus === "authed";
   const lastGenerateRef = useRef<{ option: GuessOption; mode: "image" | "video" } | null>(null);
@@ -397,8 +398,20 @@ export default function CreatePage() {
   const handlePublicUrlReady = useCallback((url: string) => {
     setPublicUrl(url);
     setReferenceUploading(false);
+    setReferenceUploadError(null);
     publicUrlReadyRef.current = true;
   }, []);
+
+  const handlePublicUrlFailed = useCallback((error: string) => {
+    setReferenceUploading(false);
+    setReferenceUploadError(error);
+    publicUrlReadyRef.current = false;
+    showToast("原图上传失败", {
+      description: "生成需要一张可公网访问的参考图，请重新选择图片或稍后重试。",
+      tone: "error",
+      durationMs: 5000,
+    });
+  }, [showToast]);
 
   const handleUploadSuccess = useCallback((base64: string) => {
     if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
@@ -408,6 +421,7 @@ export default function CreatePage() {
     setPublicUrl(null);
     setEdgeMapUrl(null);
     setSourceImageSize(null);
+    setReferenceUploadError(null);
     setReferenceUploading(true);
     publicUrlReadyRef.current = false;
     emitPipelineMetric("pipeline_source_selected", { sourceType: sourceTypeRef.current });
@@ -428,6 +442,7 @@ export default function CreatePage() {
     setPublicUrl(null);
     setEdgeMapUrl(null);
     setSourceImageSize(null);
+    setReferenceUploadError(null);
     setDemoMode(false);
     setActiveMock(null);
     setReferenceUploading(false);
@@ -485,9 +500,11 @@ export default function CreatePage() {
             emitPipelineMetric("pipeline_upload_done", { sourceType: "image", hasReference: true });
           } else if (!uploadData.success) {
             console.warn("[CreatePage] Supabase 上传失败：", uploadData.error);
+            handlePublicUrlFailed(uploadData.error ?? "Supabase 上传失败");
           }
         } catch (e) {
           console.warn("[CreatePage] Supabase 上传异常：", e);
+          handlePublicUrlFailed(e instanceof Error ? e.message : "Supabase 上传异常");
         }
       })();
 
@@ -511,7 +528,7 @@ export default function CreatePage() {
       console.error("[CreatePage] 重新选择处理异常：", e);
       showToast("重新选择失败", { description: "请稍后重试", tone: "error", durationMs: 3800 });
     }
-  }, [alignWorkspaceTop, analyzeWithVision, handleAnalysisComplete, handlePublicUrlReady, handleUploadSuccess, showToast]);
+  }, [alignWorkspaceTop, analyzeWithVision, handleAnalysisComplete, handlePublicUrlFailed, handlePublicUrlReady, handleUploadSuccess, showToast]);
 
   const handleRePickInputChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     const file = e.currentTarget.files?.[0] ?? null;
@@ -586,11 +603,21 @@ export default function CreatePage() {
   const handleGenerate = useCallback(
     async (option: GuessOption, mode: "image" | "video") => {
       if (!analysisResult) return;
-      if (!publicUrl || referenceUploading) {
+      if (referenceUploading) {
         showToast("原图还在准备中", {
-          description: "稍等片刻，参考图上传完成后再生成，能提升结构一致性。",
+          description: "视觉分析已完成，参考图还在上传。稍等片刻再生成，能提升结构一致性。",
           tone: "info",
           durationMs: 3800,
+        });
+        return;
+      }
+      if (!publicUrl) {
+        showToast(referenceUploadError ? "原图上传失败" : "原图尚未准备好", {
+          description: referenceUploadError
+            ? "生成需要一张可公网访问的参考图，请重新选择图片或稍后重试。"
+            : "参考图链接还没有准备好，请稍后重试。",
+          tone: referenceUploadError ? "error" : "info",
+          durationMs: 5000,
         });
         return;
       }
@@ -685,7 +712,7 @@ export default function CreatePage() {
         });
       }
     },
-    [analysisResult, publicUrl, referenceUploading, pollJob, showToast, sourceImageSize]
+    [analysisResult, publicUrl, referenceUploadError, referenceUploading, pollJob, showToast, sourceImageSize]
   );
 
   const retryLastGenerate = useCallback(() => {
@@ -979,6 +1006,7 @@ export default function CreatePage() {
                 <DragUpload
                   onUploadSuccess={handleUploadSuccess}
                   onPublicUrlReady={handlePublicUrlReady}
+                  onPublicUrlFailed={handlePublicUrlFailed}
                   onAnalysisComplete={handleAnalysisComplete}
                   isGuest={authed === false}
                   onGuestAttempt={requestCreateLogin}

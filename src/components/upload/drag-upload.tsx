@@ -12,6 +12,7 @@ type UnsupportedCategory = "video" | "url" | "other";
 interface DragUploadProps {
   onUploadSuccess?: (base64: string) => void;
   onPublicUrlReady?: (publicUrl: string) => void;
+  onPublicUrlFailed?: (error: string) => void;
   onAnalysisComplete?: (analysis: VisionAnalysis) => void;
   isGuest?: boolean;
   onGuestAttempt?: () => void;
@@ -118,6 +119,7 @@ async function resizeToBase64(raw: string): Promise<string> {
 export function DragUpload({
   onUploadSuccess,
   onPublicUrlReady,
+  onPublicUrlFailed,
   onAnalysisComplete,
   isGuest,
   onGuestAttempt,
@@ -185,9 +187,11 @@ export function DragUpload({
               onPublicUrlReady?.(uploadData.publicUrl);
             } else if (!uploadData.success) {
               console.warn("[DragUpload] Supabase upload failed:", uploadData.error);
+              onPublicUrlFailed?.(uploadData.error ?? "Supabase 上传失败");
             }
           } catch (e) {
             console.warn("[DragUpload] Supabase upload exception:", e);
+            onPublicUrlFailed?.(e instanceof Error ? e.message : "Supabase 上传异常");
           }
         })();
 
@@ -224,7 +228,7 @@ export function DragUpload({
         }
       }
     },
-    [maxBytes, onUploadSuccess, onPublicUrlReady, onAnalysisComplete]
+    [maxBytes, onUploadSuccess, onPublicUrlReady, onPublicUrlFailed, onAnalysisComplete]
   );
 
   const handleDragEnter = useCallback((e: React.DragEvent) => {

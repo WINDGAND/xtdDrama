@@ -29,7 +29,7 @@
 - **框架**：Next.js **16.2.4**（App Router、Route Handlers、`experimental.viewTransition`）
 - **UI**：React 19、Tailwind CSS 4、Framer Motion、`next-themes`、Geist 字体、Base UI 等
 - **数据**：Supabase（Postgres + Storage + Auth）；服务端使用 **service_role** 密钥（仅服务端，勿暴露到前端）
-- **AI 网关**：腾讯 **TokenHub**（`https://tokenhub.tencentmaas.com` 可经环境变量覆盖），统一 Bearer `TOKENHUB_API_KEY`
+- **AI 网关**：腾讯 **TokenHub** 双 Plan 分流：HY Token Plan 调用 `hy3-preview` 文本能力，通用 Token Plan / MaaS 调用 `youtu-vita`、`hy-image`、`hy-video`
 
 > Next.js 16 与历史版本存在 API/约定差异，改路由或数据获取前建议查阅本仓库依赖版本对应文档（见 [`AGENTS.md`](./AGENTS.md)）。
 

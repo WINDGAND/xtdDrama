@@ -670,7 +670,7 @@ export function GuessRefine({ analysis, onGenerate, isGenerating = false }: Gues
               {!isGenerating && (
                 <p className="text-center text-[11px] text-zinc-400 dark:text-zinc-500">
                   {selectedMode === "image"
-                    ? "图片约 10 秒 · 生成期间可继续浏览"
+                    ? "图片约 20-40 秒 · 生成期间可继续浏览"
                     : "Live 图约 2 分钟 · 生成期间可继续浏览"}
                 </p>
               )}
@@ -710,7 +710,7 @@ export function GuessRefine({ analysis, onGenerate, isGenerating = false }: Gues
                     </span>
                     正在 Drama 中…
                     <span className="text-white/60 font-normal text-xs">
-                      {selectedMode === "image" ? "约 10 秒" : "约 2 分钟"}
+                      {selectedMode === "image" ? "约 20-40 秒" : "约 2 分钟"}
                     </span>
                   </span>
                 ) : (

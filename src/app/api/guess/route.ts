@@ -3,7 +3,7 @@
  *
  * 职责（对应 PRD「Guess & Refine 层」）：
  *   1. 接收 Vision 感知结构（mainEntity / sceneState / userEmotion）
- *   2. 调用 TokenHub 混元文本模型（chat/completions）
+ *   2. 调用 TokenHub HY-3 Preview 文本模型（chat/completions）
  *   3. 返回结构化 JSON：
  *      - reply   : 一句共情/俏皮/旁白式点评（击中情绪，克制自然）
  *      - options : 3 个针对当前图片的轻度 Drama 改造方向，每项含中文叙事体生图指令
@@ -15,7 +15,7 @@
  *   - mode=direct：跳过三选一直接生成单条 option
  *
  * 模型配置：
- *   TOKENHUB_GUESS_MODEL（默认 hunyuan-2.0-instruct-20251111，见官方「文本生成」文档）
+ *   TOKENHUB_GUESS_MODEL（默认 hy3-preview，生产建议显式配置）
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -37,7 +37,7 @@ import type {
  * ---------------------------------------------------------------- */
 const TOKENHUB_API_KEY = process.env.TOKENHUB_API_KEY ?? "";
 const TOKENHUB_GUESS_MODEL =
-  process.env.TOKENHUB_GUESS_MODEL ?? "hunyuan-2.0-instruct-20251111";
+  process.env.TOKENHUB_GUESS_MODEL ?? "hy3-preview";
 const UPSTREAM_TIMEOUT_MS = Number(process.env.TOKENHUB_TIMEOUT_MS ?? "30000");
 
 /* ----------------------------------------------------------------

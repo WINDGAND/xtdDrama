@@ -51,7 +51,7 @@ const TOKENHUB_VITA_MODEL =
 const TOKENHUB_MAX_TOKENS = Number(process.env.TOKENHUB_MAX_TOKENS ?? "900");
 const UPSTREAM_TIMEOUT_MS = Number(process.env.TOKENHUB_TIMEOUT_MS ?? "30000");
 const TOKENHUB_EMOTION_MODEL =
-  process.env.TOKENHUB_EMOTION_MODEL ?? process.env.TOKENHUB_GUESS_MODEL ?? "hunyuan-2.0-instruct-20251111";
+  process.env.TOKENHUB_EMOTION_MODEL ?? process.env.TOKENHUB_GUESS_MODEL ?? "hy3-preview";
 
 const EMOTION_ENUM = [
   "崩溃",
@@ -344,7 +344,7 @@ function mapAnalysisFromElements(input: {
 /* ----------------------------------------------------------------
  * extractAllText — 递归提取任意 JSON 结构中的所有字符串值
  * 供 reanalyzeFromRawText 使用：不管 youtu-vita 返回什么格式，
- * 都能把可读文字内容拼合成一段纯文本，交给 hunyuan 做结构化重组。
+ * 都能把可读文字内容拼合成一段纯文本，交给 HY-3 Preview 做结构化重组。
  * ---------------------------------------------------------------- */
 function extractAllText(obj: unknown, depth = 0): string[] {
   if (depth > 6) return [];
@@ -366,12 +366,12 @@ function extractAllText(obj: unknown, depth = 0): string[] {
  *
  * 当 youtu-vita 返回的 JSON 格式无法被任何已知路径解析时（parsePath = "fallback"），
  * 将其原始输出中的全部文字递归提取，拼成纯文字描述，
- * 再交给 hunyuan 文本模型按严格 JSON schema 重新生成感知结构。
+ * 再交给 HY-3 Preview 文本模型按严格 JSON schema 重新生成感知结构。
  *
  * 优势：
- *  - hunyuan 是纯文本模型，对 System Prompt 的遵从率接近 100%
+ *  - HY-3 Preview 是纯文本模型，对 System Prompt 的遵从率较高
  *  - 不管 youtu-vita 偶发输出 characters / setting / objects / 自由描述等任何格式，
- *    只要文字内容足够，hunyuan 都能可靠产出 mainEntity / sceneState / userEmotion
+ *    只要文字内容足够，HY-3 Preview 都能可靠产出 mainEntity / sceneState / userEmotion
  *  - 仅在 fallback 时触发，不影响正常路径的响应速度
  * ---------------------------------------------------------------- */
 const REANALYZE_SYSTEM_PROMPT = `你是图像场景分析 JSON 生成器。你会收到一段来自视觉模型对图片的描述（格式可能不规范），请根据描述内容输出严格的纯 JSON 分析，不要任何额外文字。
@@ -413,7 +413,7 @@ async function reanalyzeFromRawText(input: {
     return null;
   }
 
-  console.error(`[vision][${requestId}] reanalyze: extracted ${allText.length} chars, calling hunyuan`);
+  console.error(`[vision][${requestId}] reanalyze: extracted ${allText.length} chars, calling HY-3 Preview`);
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
@@ -999,7 +999,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // ── 两阶段解耦回退 ────────────────────────────────────────────────────────
   // 触发条件：无论 parsePath 是什么，只要最终 analysis 不可用（isUsableAnalysis=false），
-  // 就把 youtu-vita 原始输出的所有文字交给 hunyuan 重新按 schema 生成。
+  // 就把 youtu-vita 原始输出的所有文字交给 HY-3 Preview 重新按 schema 生成。
   // 覆盖场景：parsePath=fallback（完全解析失败）、以及 parsePath=scene 但 mainEntity
   // 是单个英文词（indoor 等）这类"表面上解析成功但内容无效"的情况。
   if (!isUsableAnalysis(analysis)) {

@@ -7,7 +7,7 @@ import { tokenHubChatCompletionsUrl } from "@/lib/tokenhub";
 
 const TOKENHUB_API_KEY = process.env.TOKENHUB_API_KEY ?? "";
 const TOKENHUB_NPC_MODEL =
-  process.env.TOKENHUB_NPC_MODEL ?? process.env.TOKENHUB_GUESS_MODEL ?? "hunyuan-2.0-instruct-20251111";
+  process.env.TOKENHUB_NPC_MODEL ?? process.env.TOKENHUB_GUESS_MODEL ?? "hy3-preview";
 const UPSTREAM_TIMEOUT_MS = Number(process.env.TOKENHUB_TIMEOUT_MS ?? "30000");
 
 function pickNpcs(seed: string) {

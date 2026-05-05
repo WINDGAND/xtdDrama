@@ -3,7 +3,7 @@
  *
  * 用途：
  *  - 解决「model not found」：让你在本地直接看到可用模型名
- *  - 从返回结果里挑一个支持图片输入的模型，填入 TOKENHUB_VISION_MODEL
+ *  - 主要用于主文本 Plan 排查；视觉模型生产配置为 TOKENHUB_VITA_MODEL
  *
  * 代理到：GET https://tokenhub.tencentmaas.com/v1/models
  */

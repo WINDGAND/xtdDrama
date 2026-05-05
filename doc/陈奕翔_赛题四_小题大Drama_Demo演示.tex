@@ -271,7 +271,7 @@
     \textbf{评委快速体验指引}\\[4pt]
     Demo\;地址：\href{https://www.xtddrama.site/}{\texttt{https://www.xtddrama.site/}}\\[4pt]
     登录邮箱：\texttt{1969295061@qq.com}\quad 登录密码：\texttt{123456}\\[4pt]
-    建议体验路径：登录 $\to$ 上传一张日常图片 $\to$ 点击感兴趣的 Drama 风格方向 $\to$ 等待约 10\,s 生成 $\to$ 发布至广场，NPC 将在数秒内互动
+    建议体验路径：登录 $\to$ 上传一张日常图片 $\to$ 点击感兴趣的 Drama 风格方向 $\to$ 等待约 20--40\,s 生成图片 $\to$ 发布至广场，NPC 将在数秒内互动
   \end{tcolorbox}
   \end{minipage}
 
@@ -399,7 +399,7 @@
   \node[pipe, draw=TokenPurple!70, fill=SoftPurple] (p1)
     {\textbf{感知层}\\{\scriptsize\model{youtu-vita}}};
   \node[pipe, draw=AppleBlue!70,   fill=LightBlue,  right=0.5cm of p1] (p2)
-    {\textbf{决策层}\\{\scriptsize\model{hunyuan}}};
+    {\textbf{决策层}\\{\scriptsize\model{hy3-preview}}};
   \node[pipe, draw=AppleBlue!70,   fill=LightBlue,  right=0.5cm of p2] (p3)
     {\textbf{生成层}\\{\scriptsize\model{hy-image / video}}};
   \node[pipe, draw=SupaGreen,      fill=SoftGreen,  right=0.5cm of p3] (p4)
@@ -424,7 +424,7 @@
     支持上传任意场景图片（JPG / PNG / WebP，$\leq$10\,MB），前端自动等比压缩至适宜尺寸。图片经多模态视觉大模型（\model{youtu-vita}）分析，识别画面中的核心实体、场景状态与情绪标签，输出结构化的感知结果，驱动后续决策层。
 
   \item[\kw{Guess \& Refine 情绪互动罗盘（决策层）}]\mbox{}\\
-    告别冷冰冰的提示词输入框。语言模型（\model{hunyuan}）根据感知结果自动生成一句共情破冰文案，并同步给出 3 个风格各异的 Drama 改造方向供用户一键选择，完成意图收敛。支持"换一批"，每次重新生成语义不重复的新选项。
+    告别冷冰冰的提示词输入框。语言模型（\model{hy3-preview}）根据感知结果自动生成一句共情破冰文案，并同步给出 3 个风格各异的 Drama 改造方向供用户一键选择，完成意图收敛。支持"换一批"，每次重新生成语义不重复的新选项。
 
   \item[\kw{结构锁定重绘（生成层）}]\mbox{}\\
     原图作为参考图与生成指令一并提交，图像生成模型（\model{hy-image-v3.0}）或视频生成模型（\model{hy-video-1.5}）在物理骨架与空间透视完全锁定的前提下，对材质、光线与氛围进行戏剧化重绘。前端同步展示原图的边缘骨架预览，直观呈现"结构锁定"效果。
@@ -436,7 +436,7 @@
 
 \subsection{产品架构图}
 
-图~\ref{fig:arch} 展示产品的三层能力架构：用户端负责交互与上传，AI 能力核心完成感知–决策–生成–反馈全链路，技术底座提供模型与数据支撑。
+图~\ref{fig:arch} 展示产品的四个 AI 模块接力：用户端负责交互与上传，AI 能力核心完成感知–决策–生成–反馈全链路，技术底座提供模型与数据支撑。
 
 %%──────────────────────────────────────────────────────────────
 %% 架构图（TikZ）— 3 列对称布局，节点全中文功能语言
@@ -473,7 +473,7 @@
 
   %% ── 列 3：技术底座（4 节点）─────────────────────────────
   \node[archTH, right=2.2cm of a1] (t1) {视觉理解模型\\youtu-vita};
-  \node[archTH, below=of t1]       (t2) {语言与决策模型\\hunyuan};
+  \node[archTH, below=of t1]       (t2) {语言与决策模型\\hy3-preview};
   \node[archTH, below=of t2]       (t3) {图像 / 视频生成模型\\hy-image · hy-video};
   %% 留出足够间距，避免 Supabase 组框标签被 TokenHub 组框遮挡
   \node[archSB, below=1.6cm of t3] (t4) {数据库·存储·认证\\Supabase};
@@ -481,7 +481,7 @@
   \begin{scope}[on background layer]
     \node[grpbox={TokenPurple},
           fit=(t1)(t2)(t3),
-          label={[font=\footnotesize\bfseries,color=TokenPurple]above:腾讯 TokenHub MaaS}]
+          label={[font=\footnotesize\bfseries,color=TokenPurple]above:腾讯 TokenHub}]
           (gTH) {};
     \node[grpbox={SupaGreen},
           fit=(t4),
@@ -624,12 +624,12 @@
 
 \subsection{AI 核心能力}
 
-小题大Drama 深度融合三层 AI 能力，缺任意一层产品链路即断裂：
+小题大Drama 深度融合四个 AI 模块，缺任意一环产品链路即断裂：
 
 \vspace{4pt}
 \begin{table}[htbp]
   \centering
-  \caption{AI 三层能力矩阵}
+  \caption{AI 四模块能力矩阵}
   \label{tab:ai}
   \renewcommand{\arraystretch}{1.4}
   %% tmod：表格专用模型名宏，无 \small，确保与第一列基线对齐
@@ -639,16 +639,20 @@
     层次 & 模型 / 服务 & 职责与实际输出 \\
     \midrule
     \vspace{4pt}感知层
-      & \tmod{youtu-vita}\newline（TokenHub）
+      & \tmod{youtu-vita}\newline（通用 Token Plan / MaaS）
       & 产品的「眼睛」：看懂任意日常图片的主实体、场景环境与情绪底色，输出结构化理解（13 类情绪枚举、6 类图片类型、差异化风格提示）；内置多重容错与情绪校准机制，确保任何图片都能触发有意义的 Drama 改造建议。 \\
     \addlinespace[3pt]
     \vspace{4pt}决策层
-      & \tmod{hunyuan}\newline（TokenHub）
-      & 产品的「大脑和嘴巴」：输出一句击中情绪的俏皮破冰文案 + 3 个各不相同的 Drama 方向（内嵌结构锚定指令）；同时驱动 5 位 NPC 角色生成个性化评论，承担情绪校准与场景描述补全等辅助推理任务。 \\
+      & \tmod{hy3-preview}\newline（HY Token Plan）
+      & 产品的「大脑」：输出一句击中情绪的俏皮破冰文案 + 3 个各不相同的 Drama 方向（内嵌结构锚定指令）；同时承担情绪校准、场景描述补全与提示词收敛等辅助推理任务。 \\
     \addlinespace[3pt]
     \vspace{4pt}生成层
-      & \tmod{hy-image} / \tmod{hy-video}\newline（TokenHub）
+      & \tmod{hy-image} / \tmod{hy-video}\newline（通用 Token Plan / MaaS）
       & 产品的「画笔」：在原图参考约束下异步生成图片或短视频；生成结果在发布时永久落盘至云存储，确保广场内容长期可访问，用户不会看到失效的空图。 \\
+    \addlinespace[3pt]
+    \vspace{4pt}反馈层
+      & \tmod{NPC Engine}\newline（hy3-preview）
+      & 产品的「嘴巴和捧场团」：为 5 位 NPC 生成差异化角色评论，并支持用户回复后的多轮接话，形成发布后的拟真社交反馈。 \\
     \bottomrule
   \end{tabularx}
 \end{table}
@@ -656,7 +660,7 @@
 \subsection{AI 如何解决痛点（去掉 AI，产品还能成立吗？）}
 
 \begin{tcolorbox}[dramabox]
-  \kw{结论：去掉 AI，本产品将彻底崩溃——三层 AI 缺一不可，且相互依赖，无法用传统技术等价替代。}
+  \kw{结论：去掉 AI，本产品将彻底崩溃——四个 AI 模块缺一不可，且相互依赖，无法用传统技术等价替代。}
 \end{tcolorbox}
 
 \vspace{4pt}
@@ -724,14 +728,14 @@
 
   \item \kw{Supabase}：Postgres 存储 posts / comments / post\_likes / npc\_profiles 表（已含 RLS 策略，游客可读、写入/删改限本人）；Storage 持久化用户原图与发布结果图；Auth 提供登录与会话管理（基于 \code{@supabase/ssr}，session 存于 cookie）。
 
-  \item \kw{TokenHub}：统一 Bearer API Key 接入四种能力；封装层（\code{src/lib/tokenhub.ts}）包含 429/5xx 指数退避重试（500\,ms 延迟，最多 1 次）与 30\,s 超时控制。
+  \item \kw{TokenHub}：按当前工程实现拆分为 HY Token Plan（\model{hy3-preview} 文本）与通用 Token Plan / MaaS（\model{youtu-vita}、\model{hy-image-v3.0}、\model{hy-video-1.5}）两套配置；封装层（\code{src/lib/tokenhub.ts}）负责按接口类型选择 Base URL / API Key，并为 MaaS 任务提供 429/5xx 指数退避重试与 30\,s 超时控制。
 \end{itemize}
 
 \subsubsection*{稳定性保障措施}
 
 \begin{itemize}[leftmargin=2em, itemsep=0.25em, topsep=3pt]
   \item \kw{演示降级模式}：Vision API 或生图 API 不可用时，自动切换预置 Mock 数据（\code{src/lib/mock-drama-examples.ts}），前端有明确"演示模式"标注；演示模式下禁止发布真实内容，保障 Demo 展示链路完整可用。
-  \item \kw{感知两阶段兜底}：\model{youtu-vita} 格式异常时，\model{hunyuan} 自动二次结构化重组，感知层整体成功率显著提升，避免因模型输出格式漂移导致链路中断。
+  \item \kw{感知两阶段兜底}：\model{youtu-vita} 格式异常时，\model{hy3-preview} 自动二次结构化重组，感知层整体成功率显著提升，避免因模型输出格式漂移导致链路中断。
   \item \kw{镜像落盘}：生成结果 URL 在发布时同步拉取并持久化至 Supabase Storage，广场内容不依赖模型临时 CDN 链接；若拉取失败则拒绝发布并给出明确错误提示。
 \end{itemize}
 

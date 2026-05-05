@@ -994,11 +994,12 @@ export default function CreatePage() {
               Under the hood
             </span>
             <h2 className="mt-1 text-lg font-semibold text-zinc-900 dark:text-zinc-50">
-              三层 AI，悄悄运作
+              四个 AI 模块，接力完成
             </h2>
-            <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-6">
+            <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               {[
                 { tag: "YT-VITA", title: "看懂你的图", desc: "多模态理解图片语义，输出场景与情绪标签。" },
+                { tag: "HY-3 Preview", title: "猜情绪，定方向", desc: "生成破冰文案与 Drama 选项，把意图收敛成可执行提示词。" },
                 { tag: "HY-Image / Video", title: "重绘，Drama 化", desc: "在结构约束下做夸张重构，生成更“戏”的画面。" },
                 { tag: "NPC Engine", title: "评论秒到位", desc: "多角色人设评论，消灭发布后的社交空窗期。" },
               ].map((x, i) => (
@@ -1006,7 +1007,7 @@ export default function CreatePage() {
                   key={x.tag}
                   className={[
                     "pt-4",
-                    i === 0 ? "" : "sm:pt-4 sm:border-l sm:border-zinc-100 sm:dark:border-white/[0.06] sm:pl-5",
+                    i === 0 ? "" : "lg:pt-4 lg:border-l lg:border-zinc-100 lg:dark:border-white/[0.06] lg:pl-5",
                   ].join(" ")}
                 >
                   <div className="text-[11px] font-mono text-zinc-500 dark:text-zinc-500">
@@ -1192,7 +1193,7 @@ export default function CreatePage() {
                       <div className="flex h-full w-full flex-col items-center justify-center px-4 gap-3">
                         <DramaGeneratingLoader status={job!.status as "submitting" | "polling"} />
                         <p className="text-[11px] text-zinc-400 dark:text-zinc-500">
-                          {job!.mode === "image" ? "图片预计约 10 秒" : "Live 图预计约 2 分钟，请耐心等候"}
+                          {job!.mode === "image" ? "图片预计约 20-40 秒" : "Live 图预计约 2 分钟，请耐心等候"}
                         </p>
                       </div>
                     ) : job?.status === "failed" ? (

@@ -7,7 +7,7 @@ import { tokenHubChatCompletionsUrl } from "@/lib/tokenhub";
 
 const TOKENHUB_API_KEY = process.env.TOKENHUB_API_KEY ?? "";
 const TOKENHUB_NPC_MODEL =
-  process.env.TOKENHUB_NPC_MODEL ?? process.env.TOKENHUB_GUESS_MODEL ?? "hunyuan-2.0-instruct-20251111";
+  process.env.TOKENHUB_NPC_MODEL ?? process.env.TOKENHUB_GUESS_MODEL ?? "hy3-preview";
 const UPSTREAM_TIMEOUT_MS = Number(process.env.TOKENHUB_TIMEOUT_MS ?? "30000");
 
 const SYSTEM_PROMPT = `你是「小题大Drama」的 AI 互动引擎。你将根据一条用户发布的作品（风格、情绪、主实体、场景）生成 5 条“更像真人”的评论，用于消灭“发布后社交空窗期”。

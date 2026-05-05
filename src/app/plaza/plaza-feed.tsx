@@ -1,8 +1,8 @@
-import { getCachedPlazaPosts } from "@/lib/cached-feeds";
+import { getCachedPlazaPosts, getFreshPlazaPosts } from "@/lib/cached-feeds";
 import { PlazaFeedListClient } from "./plaza-feed-list-client";
 
-export async function PlazaFeed() {
-  const posts = await getCachedPlazaPosts();
+export async function PlazaFeed({ fresh = false }: { fresh?: boolean }) {
+  const posts = fresh ? await getFreshPlazaPosts() : await getCachedPlazaPosts();
 
   if (!posts) {
     return (

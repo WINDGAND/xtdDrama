@@ -4,7 +4,15 @@ import { PlazaFeedSkeleton } from "./plaza-feed-skeleton";
 import { PlazaFeed } from "./plaza-feed";
 import { PlazaPublishedNotice } from "./plaza-published-notice";
 
-export default function PlazaPage() {
+type PlazaPageProps = {
+  searchParams?: Promise<{ published?: string | string[] }>;
+};
+
+export default async function PlazaPage({ searchParams }: PlazaPageProps) {
+  const params = await searchParams;
+  const published = Array.isArray(params?.published) ? params?.published[0] : params?.published;
+  const freshFeed = typeof published === "string" && published.length > 0;
+
   return (
     <div className="apple-container py-10">
       <div className="mx-auto w-full max-w-3xl">
@@ -24,7 +32,7 @@ export default function PlazaPage() {
         </div>
 
         <Suspense fallback={<PlazaFeedSkeleton />}>
-          <PlazaFeed />
+          <PlazaFeed fresh={freshFeed} />
         </Suspense>
         <Suspense fallback={null}>
           <PlazaPublishedNotice />

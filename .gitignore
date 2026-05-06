@@ -23,6 +23,7 @@
 # misc
 .DS_Store
 *.pem
+/陈奕翔_赛道四_小题大Drama_Demo演示.mp4
 
 # debug
 npm-debug.log*
